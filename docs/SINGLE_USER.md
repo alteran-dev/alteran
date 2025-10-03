@@ -11,6 +11,13 @@ This is the minimal, one‑time checklist to run a single‑user PDS on Cloudfla
   - `wrangler secret put ACCESS_TOKEN_SECRET`
   - `wrangler secret put REFRESH_TOKEN_SECRET`
   - `wrangler secret put REPO_SIGNING_KEY`
+  - `wrangler secret put REPO_SIGNING_PUBLIC_KEY` (optional; enables key in did.json)
+
+  Or run the bootstrap script to generate everything and print commands:
+
+  ```bash
+  bun run scripts/setup-secrets.ts --env production --did did:web:example.com --handle user.example.com
+  ```
 - Apply D1 migrations:
   - `wrangler d1 migrations apply pds`
 
@@ -28,4 +35,3 @@ This is the minimal, one‑time checklist to run a single‑user PDS on Cloudfla
 Optional: Firehose
 - Connect a WebSocket client to `wss://<your-host>/xrpc/com.atproto.sync.subscribeRepos`
 - Perform two writes; you should see `#commit` frames with increasing `seq`
-

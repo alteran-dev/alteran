@@ -18,3 +18,5 @@ devenv.local.nix
 dist/
 node_modules/
 
+# local dev-only secrets for wrangler
+.dev.vars

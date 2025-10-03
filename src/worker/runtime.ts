@@ -1,5 +1,6 @@
 import { seed } from '../db/seed';
 import { validateConfigOrThrow } from '../lib/config';
+import { resolveEnvSecrets } from '../lib/secrets';
 import type { Env } from '../env';
 import type { SSRManifest } from 'astro';
 import type {
@@ -28,8 +29,12 @@ export interface CreatePdsFetchHandlerOptions {
  */
 export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): PdsFetchHandler {
   return async function fetch(request: WorkersRequest, env: Env, ctx: ExecutionContext) {
+    // Resolve any Secret Store bindings to strings so downstream code can
+    // treat secrets uniformly regardless of source (Secret or Secret Store).
+    const resolvedEnv = await resolveEnvSecrets(env);
+
     try {
-      validateConfigOrThrow(env);
+      validateConfigOrThrow(resolvedEnv);
     } catch (error) {
       return new Response(
         JSON.stringify({
@@ -43,7 +48,7 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
       ) as unknown as WorkersResponse;
     }
 
-    await seed(env.DB, env.PDS_DID ?? 'did:example:single-user');
+    await seed(resolvedEnv.DB, (resolvedEnv.PDS_DID as string | undefined) ?? 'did:example:single-user');
 
     const url = new URL(request.url);
     if (url.pathname === '/xrpc/com.atproto.sync.subscribeRepos') {
@@ -51,17 +56,17 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
       if (upgrade !== 'websocket') {
         return new Response('Expected websocket', { status: 426 }) as unknown as WorkersResponse;
       }
-      if (!env.SEQUENCER) {
+      if (!resolvedEnv.SEQUENCER) {
         return new Response('Sequencer not configured', { status: 503 }) as unknown as WorkersResponse;
       }
 
-      const id = env.SEQUENCER.idFromName('default');
-      const stub = env.SEQUENCER.get(id);
+      const id = resolvedEnv.SEQUENCER.idFromName('default');
+      const stub = resolvedEnv.SEQUENCER.get(id);
       return (await stub.fetch(request as any)) as unknown as WorkersResponse;
     }
 
     const astroFetch = await getAstroFetch(options);
-    const response = await astroFetch(request, env as any, ctx);
+    const response = await astroFetch(request, resolvedEnv as any, ctx);
     return response as unknown as WorkersResponse;
   };
 }

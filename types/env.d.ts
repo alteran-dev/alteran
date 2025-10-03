@@ -7,24 +7,34 @@ import type {
   R2Bucket,
 } from '@cloudflare/workers-types';
 
+// Minimal Secret Store binding interface. Cloudflare exposes each bound secret
+// as an object with an async `get()` that returns the secret value.
+// If @cloudflare/workers-types defines this already, our local type is compatible.
+export interface SecretsStoreSecret {
+  get(): Promise<string>;
+}
+
 declare global {
   interface Env {
     DB: D1Database;
     BLOBS: R2Bucket;
     SEQUENCER?: DurableObjectNamespace;
-    PDS_HANDLE?: string;
-    PDS_DID?: string;
+    // Secrets can be provided either as Wrangler Secrets (string)
+    // or via Secret Store bindings (SecretsStoreSecret).
+    PDS_HANDLE?: string | SecretsStoreSecret;
+    PDS_DID?: string | SecretsStoreSecret;
     PDS_HOSTNAME?: string;
-    USER_PASSWORD?: string;
+    USER_PASSWORD?: string | SecretsStoreSecret;
     PDS_MAX_BLOB_SIZE?: string;
-    ACCESS_TOKEN_SECRET?: string;
-    REFRESH_TOKEN_SECRET?: string;
+    ACCESS_TOKEN_SECRET?: string | SecretsStoreSecret;
+    REFRESH_TOKEN_SECRET?: string | SecretsStoreSecret;
     PDS_ACCESS_TTL_SEC?: string;
     PDS_REFRESH_TTL_SEC?: string;
     JWT_ALGORITHM?: string;
-    JWT_ED25519_PRIVATE_KEY?: string;
-    JWT_ED25519_PUBLIC_KEY?: string;
-    REPO_SIGNING_KEY?: string;
+    JWT_ED25519_PRIVATE_KEY?: string | SecretsStoreSecret;
+    JWT_ED25519_PUBLIC_KEY?: string | SecretsStoreSecret;
+    REPO_SIGNING_KEY?: string | SecretsStoreSecret;
+    REPO_SIGNING_PUBLIC_KEY?: string | SecretsStoreSecret;
     PDS_RATE_LIMIT_PER_MIN?: string;
     PDS_MAX_JSON_BYTES?: string;
     PDS_CORS_ORIGIN?: string;

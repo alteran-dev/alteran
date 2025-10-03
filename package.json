@@ -37,7 +37,8 @@
     "db:apply": "wrangler d1 migrations apply pds",
     "db:apply:local": "bunx wrangler d1 migrations apply pds --local",
     "db:apply:local:direct": "wrangler d1 migrations apply pds --local",
-    "db:reset:local": "rm -rf .wrangler/state && rm -rf drizzle && bun run db:generate && bun run db:apply:local"
+    "db:reset:local": "rm -rf .wrangler/state && rm -rf drizzle && bun run db:generate && bun run db:apply:local",
+    "secrets:setup": "bun run scripts/setup-secrets.ts"
   },
   "devDependencies": {
     "@astrojs/cloudflare": "^12.6.9",

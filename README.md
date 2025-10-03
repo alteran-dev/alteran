@@ -185,17 +185,44 @@ Set these secrets for each environment using `wrangler secret put <NAME> --env <
 
 **Generate secrets:**
 ```bash
-# Generate signing key
+# One-shot bootstrap (recommended)
+# Generates all required secrets and prints wrangler commands
+bun run scripts/setup-secrets.ts --env production --did did:web:example.com --handle user.example.com
+
+# Or generate only the repo signing key
 bun run scripts/generate-signing-key.ts
 
-# Set secrets (example for production)
+# After generation, set secrets (example for production)
 wrangler secret put PDS_DID --env production
 wrangler secret put PDS_HANDLE --env production
 wrangler secret put USER_PASSWORD --env production
 wrangler secret put ACCESS_TOKEN_SECRET --env production
 wrangler secret put REFRESH_TOKEN_SECRET --env production
 wrangler secret put REPO_SIGNING_KEY --env production
+# Optional: publish public key for DID document
+wrangler secret put REPO_SIGNING_PUBLIC_KEY --env production
 ```
+
+### Using Cloudflare Secret Store (optional)
+
+Instead of Wrangler Secrets, you may bind secrets from Cloudflare Secret Store. This repo now supports both. Bind each secret you want to source from Secret Store via `secrets_store_secrets` in `wrangler.jsonc`:
+
+```jsonc
+{
+  // ...
+  "secrets_store_secrets": [
+    { "binding": "USER_PASSWORD", "secret_name": "user_password", "store_id": "<your-store-id>" },
+    { "binding": "ACCESS_TOKEN_SECRET", "secret_name": "access_token_secret", "store_id": "<your-store-id>" },
+    { "binding": "REFRESH_TOKEN_SECRET", "secret_name": "refresh_token_secret", "store_id": "<your-store-id>" },
+    { "binding": "PDS_DID", "secret_name": "pds_did", "store_id": "<your-store-id>" },
+    { "binding": "PDS_HANDLE", "secret_name": "pds_handle", "store_id": "<your-store-id>" }
+  ]
+}
+```
+
+Notes:
+- Bindings can use the same names as the existing env vars. Only one source should be configured per secret (Wrangler Secret OR Secret Store binding).
+- At runtime, the worker resolves Secret Store bindings via `await env.<BINDING>.get()` and passes them to the app as plain strings.
 
 ### Optional Configuration
 
@@ -326,8 +353,12 @@ This PDS now implements full AT Protocol core compliance with:
 
 ## Setup Instructions
 
-### 1. Generate Signing Key
+### 1. Generate Secrets
 ```bash
+# Recommended: bootstrap all secrets (prints wrangler commands)
+bun run scripts/setup-secrets.ts --env production --did did:web:example.com --handle user.example.com
+
+# Alternative: generate only the repo signing key
 bun run scripts/generate-signing-key.ts
 ```
 
@@ -341,6 +372,8 @@ wrangler secret put PDS_HANDLE        # Your handle
 wrangler secret put USER_PASSWORD     # Login password
 wrangler secret put ACCESS_TOKEN_SECRET
 wrangler secret put REFRESH_TOKEN_SECRET
+# Optional: publish raw public key for DID document
+wrangler secret put REPO_SIGNING_PUBLIC_KEY
 ```
 
 **For Local Development (.dev.vars):**
@@ -348,6 +381,8 @@ wrangler secret put REFRESH_TOKEN_SECRET
 PDS_DID=did:plc:your-did-here
 PDS_HANDLE=your-handle.bsky.social
 REPO_SIGNING_KEY=<base64-key-from-step-1>
+# Optional: publish raw 32-byte public key in did.json
+REPO_SIGNING_PUBLIC_KEY=<base64-raw-public-key>
 USER_PASSWORD=your-password
 ACCESS_TOKEN_SECRET=your-access-secret
 REFRESH_TOKEN_SECRET=your-refresh-secret

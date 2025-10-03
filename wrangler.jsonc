@@ -33,6 +33,16 @@
     { "tag": "v1", "new_classes": ["Sequencer"] }
   ],
   "observability": { "enabled": true },
+  // Optionally bind secrets from Cloudflare Secret Store. Each entry exposes
+  // an env binding with an async get(). This project resolves them to strings
+  // at runtime, so your handlers see plain string values.
+  // "secrets_store_secrets": [
+  //   { "binding": "USER_PASSWORD", "secret_name": "user_password", "store_id": "<your-store-id>" },
+  //   { "binding": "ACCESS_TOKEN_SECRET", "secret_name": "access_token_secret", "store_id": "<your-store-id>" },
+  //   { "binding": "REFRESH_TOKEN_SECRET", "secret_name": "refresh_token_secret", "store_id": "<your-store-id>" },
+  //   { "binding": "PDS_DID", "secret_name": "pds_did", "store_id": "<your-store-id>" },
+  //   { "binding": "PDS_HANDLE", "secret_name": "pds_handle", "store_id": "<your-store-id>" }
+  // ],
 
   // Environment-specific configurations
   "env": {
