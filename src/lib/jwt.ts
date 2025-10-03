@@ -1,4 +1,5 @@
 import type { Env } from '../env';
+import { getRuntimeString } from './secrets';
 
 export interface JwtClaims {
   sub: string; // DID
@@ -31,7 +32,14 @@ export async function signJwt(env: Env, claims: JwtClaims, kind: 'access' | 'ref
   if (claims.scope) payload.scope = claims.scope;
   if (claims.jti) payload.jti = claims.jti;
 
-  const secret = kind === 'access' ? (env.ACCESS_TOKEN_SECRET ?? 'dev-access') : (env.REFRESH_TOKEN_SECRET ?? 'dev-refresh');
+  const secret = await getRuntimeString(
+    env,
+    kind === 'access' ? 'ACCESS_TOKEN_SECRET' : 'REFRESH_TOKEN_SECRET',
+    kind === 'access' ? 'dev-access' : 'dev-refresh'
+  );
+  if (!secret) {
+    throw new Error(`Missing ${kind === 'access' ? 'ACCESS_TOKEN_SECRET' : 'REFRESH_TOKEN_SECRET'}`);
+  }
   const algorithm = (env.JWT_ALGORITHM as string | undefined) ?? 'HS256';
 
   if (algorithm === 'EdDSA') {
@@ -50,7 +58,12 @@ export async function verifyJwt(env: Env, token: string): Promise<{ valid: boole
 
   let ok = false;
   if (header.alg === 'HS256' && header.typ === 'JWT') {
-    const secret = (payload.t === 'refresh') ? (env.REFRESH_TOKEN_SECRET ?? 'dev-refresh') : (env.ACCESS_TOKEN_SECRET ?? 'dev-access');
+    const secret = await getRuntimeString(
+      env,
+      payload.t === 'refresh' ? 'REFRESH_TOKEN_SECRET' : 'ACCESS_TOKEN_SECRET',
+      payload.t === 'refresh' ? 'dev-refresh' : 'dev-access'
+    );
+    if (!secret) return null;
     ok = await hmacJwtVerify(parts[0] + '.' + parts[1], parts[2], secret);
   } else if (header.alg === 'EdDSA' && header.typ === 'JWT') {
     ok = await eddsaJwtVerify(parts[0] + '.' + parts[1], parts[2], env);
@@ -90,9 +103,9 @@ async function eddsaJwtSign(payload: any, env: Env): Promise<string> {
   const data = `${h}.${p}`;
 
   // Import Ed25519 private key from env
-  const keyData = env.JWT_ED25519_PRIVATE_KEY as string | undefined;
+  const keyData = await getRuntimeString(env, 'REPO_SIGNING_KEY');
   if (!keyData) {
-    throw new Error('JWT_ED25519_PRIVATE_KEY not configured');
+    throw new Error('REPO_SIGNING_KEY not configured for EdDSA JWTs');
   }
 
   // Decode base64 private key
@@ -114,7 +127,7 @@ async function eddsaJwtVerify(data: string, sigB64: string, env: Env): Promise<b
   const enc = new TextEncoder();
 
   // Import Ed25519 public key from env
-  const keyData = env.JWT_ED25519_PUBLIC_KEY as string | undefined;
+  const keyData = await getRuntimeString(env, 'REPO_SIGNING_PUBLIC_KEY');
   if (!keyData) {
     return false;
   }

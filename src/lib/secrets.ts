@@ -1,3 +1,4 @@
+import { setGetEnv } from 'astro/env/setup';
 import type { Env } from '../env';
 import type { SecretsStoreSecret } from '../../types/env';
 
@@ -9,8 +10,6 @@ const SECRET_KEYS = [
   'REFRESH_TOKEN_SECRET',
   'REPO_SIGNING_KEY',
   'REPO_SIGNING_PUBLIC_KEY',
-  'JWT_ED25519_PRIVATE_KEY',
-  'JWT_ED25519_PUBLIC_KEY',
 ] as const satisfies readonly (keyof Env)[];
 
 function isSecretStoreBinding(value: unknown): value is SecretsStoreSecret {
@@ -42,6 +41,55 @@ export async function resolveEnvSecrets<E extends Env>(env: E): Promise<E> {
     })
   );
 
+  setGetEnv((key) => {
+    const local = resolved[key];
+    if (typeof local === 'string') return local;
+    if (typeof local === 'number' || typeof local === 'boolean') return String(local);
+    const fallback = process.env[key];
+    return typeof fallback === 'string' ? fallback : undefined;
+  });
+
   return resolved as E;
 }
 
+type AstroGetSecret = (key: string) => string | undefined;
+
+let astroGetSecret: AstroGetSecret | null | undefined;
+
+async function loadAstroGetSecret(): Promise<AstroGetSecret | null> {
+  if (astroGetSecret !== undefined) return astroGetSecret;
+  try {
+    const mod = await import('astro:env/server');
+    astroGetSecret = mod.getSecret as AstroGetSecret;
+  } catch {
+    astroGetSecret = null;
+  }
+  return astroGetSecret;
+}
+
+export async function getRuntimeString<K extends keyof Env>(
+  env: Env,
+  key: K,
+  fallback?: string
+): Promise<string | undefined> {
+  const current = env[key];
+  if (typeof current === 'string' && current !== '') {
+    return current;
+  }
+
+  const secretFn = await loadAstroGetSecret();
+  if (secretFn) {
+    try {
+      const value = secretFn(String(key));
+      if (typeof value === 'string' && value !== '') {
+        return value;
+      }
+    } catch (error) {
+      if (fallback === undefined) {
+        throw error;
+      }
+    }
+  }
+
+  return fallback;
+}
