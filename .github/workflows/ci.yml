@@ -44,8 +44,6 @@ jobs:
           registry-url: https://registry.npmjs.org
           scope: '@alteran'
           always-auth: true
-      - name: Align package version
-        run: npm version "${{ steps.release_version.outputs.version }}" --no-git-tag-version
       - name: Publish to npm
         run: npm publish --access public --provenance
 
