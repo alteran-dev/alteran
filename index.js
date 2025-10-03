@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { isAbsolute, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CORE_ROUTES = [
@@ -37,7 +38,7 @@ const CORE_ROUTES = [
 
 const ROOT_ROUTE = {
   pattern: '/',
-  entrypoint: './src/pages/index.ts',
+  entrypoint: './src/handlers/root.ts',
 };
 
 const DEBUG_ROUTES = [
@@ -96,8 +97,21 @@ export default function alteran(options = {}) {
           order: 'pre',
         });
 
+        const srcDirUrl = config.srcDir ?? config.root;
+        const pagesDirUrl = config.pagesDir ?? new URL('./pages/', srcDirUrl);
+        const projectPagesDir = fileURLToPath(pagesDirUrl);
+
         for (const route of routes) {
-          injectRoute({ pattern: route.pattern, entrypoint: resolvePackagePath(route.entrypoint) });
+          const entrypoint = resolvePackagePath(route.entrypoint);
+          const relativeToPages = relative(projectPagesDir, entrypoint);
+          const entrypointWithinPages =
+            relativeToPages === '' || (!relativeToPages.startsWith('..') && !isAbsolute(relativeToPages));
+
+          if (entrypointWithinPages) {
+            continue;
+          }
+
+          injectRoute({ pattern: route.pattern, entrypoint });
         }
       },
 

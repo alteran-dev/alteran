@@ -6,7 +6,7 @@
     "lib": ["ES2021", "DOM"],
     "types": ["bun-types"]
   },
-  "include": ["tests/**/*", "src/**/*"],
+  "include": [".astro/types.d.ts", "tests/**/*", "src/**/*"],
   "exclude": [
     "src/_worker.ts",
     "src/middleware.ts",
@@ -14,4 +14,3 @@
     "astro.config.mjs"
   ]
 }
-

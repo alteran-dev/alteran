@@ -7,6 +7,7 @@
     "types": ["@cloudflare/workers-types"]
   },
   "include": [
+    ".astro/types.d.ts",
     "src/**/*",
     "!src/pages/**/*" // exclude Astro route modules from typecheck here
   ],
