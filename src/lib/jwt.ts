@@ -111,9 +111,9 @@ async function eddsaJwtSign(payload: any, env: Env): Promise<string> {
   // Decode base64 private key
   const keyBytes = b64urlDecode(keyData);
   const key = await crypto.subtle.importKey(
-    'raw',
+    'pkcs8',
     keyBytes,
-    { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
+    { name: 'Ed25519' } as any,
     false,
     ['sign']
   );
