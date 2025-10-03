@@ -33,6 +33,20 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
     // treat secrets uniformly regardless of source (Secret or Secret Store).
     const resolvedEnv = await resolveEnvSecrets(env);
 
+    // Cloudflare's Astro adapter expects an ASSETS binding for serving static
+    // fallback content. Our worker doesn't ship static assets in production,
+    // so provide a no-op stub to prevent adapter crashes (error code 1101).
+    if (!resolvedEnv.ASSETS || typeof (resolvedEnv as any).ASSETS.fetch !== 'function') {
+      (resolvedEnv as any).ASSETS = {
+        async fetch() {
+          return new Response('Not Found', {
+            status: 404,
+            headers: { 'Cache-Control': 'public, max-age=60' },
+          });
+        },
+      };
+    }
+
     try {
       validateConfigOrThrow(resolvedEnv);
     } catch (error) {
