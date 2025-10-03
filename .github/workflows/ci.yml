@@ -3,10 +3,10 @@ name: ci
 on:
   push:
     branches: [ main ]
+    tags:
+      - '\d+.\d+.\d+'
   pull_request:
     branches: [ main ]
-  release:
-    types: [ published ]
   workflow_dispatch:
 
 jobs:
@@ -40,9 +40,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
-          scope: '@alteran'
-          always-auth: true
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish

@@ -56,7 +56,7 @@ export default function alteran(options = {}) {
   const {
     debugRoutes = false,
     includeRootEndpoint = false,
-    injectServerEntry = true,
+    injectServerEntry = false,
   } = options;
 
   const middlewareEntrypoint = resolvePackagePath('./src/middleware.ts');
