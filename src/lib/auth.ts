@@ -6,7 +6,10 @@ export async function isAuthorized(request: Request, env: any): Promise<boolean>
   if (!auth || !auth.startsWith('Bearer ')) return false;
   const token = auth.slice(7);
   // Prefer JWT
-  const ver = await verifyJwt(env, token).catch(() => null);
+  const ver = await verifyJwt(env, token).catch((err) => {
+    console.error('JWT verification error:', err);
+    return null;
+  });
   if (ver && ver.valid && ver.payload.t === 'access') return true;
   // Back-compat local escape hatch if explicitly enabled
   const allowDev = (env as any).PDS_ALLOW_DEV_TOKEN === '1';

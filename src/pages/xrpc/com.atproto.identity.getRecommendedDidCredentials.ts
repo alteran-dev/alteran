@@ -21,9 +21,9 @@ export async function GET({ locals, request }: APIContext) {
 
     // Get signing key if available
     let signingKey: string | undefined;
-    if (env.REPO_SIGNING_PUBLIC_KEY) {
+    if (env.REPO_SIGNING_KEY_PUBLIC) {
       // Convert raw public key to multibase format
-      const pubKeyStr = String(env.REPO_SIGNING_PUBLIC_KEY);
+      const pubKeyStr = String(env.REPO_SIGNING_KEY_PUBLIC);
       const pubKeyBytes = Uint8Array.from(atob(pubKeyStr), c => c.charCodeAt(0));
 
       // Ed25519 multicodec prefix (0xed01) + public key

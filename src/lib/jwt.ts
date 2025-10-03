@@ -127,22 +127,28 @@ async function eddsaJwtVerify(data: string, sigB64: string, env: Env): Promise<b
   const enc = new TextEncoder();
 
   // Import Ed25519 public key from env
-  const keyData = await getRuntimeString(env, 'REPO_SIGNING_PUBLIC_KEY');
+  const keyData = await getRuntimeString(env, 'REPO_SIGNING_KEY_PUBLIC');
   if (!keyData) {
+    console.error('EdDSA JWT verification failed: REPO_SIGNING_KEY_PUBLIC not configured');
     return false;
   }
 
-  const keyBytes = b64urlDecode(keyData);
-  const key = await crypto.subtle.importKey(
-    'raw',
-    keyBytes,
-    { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-    false,
-    ['verify']
-  );
+  try {
+    const keyBytes = b64urlDecode(keyData);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyBytes,
+      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
+      false,
+      ['verify']
+    );
 
-  const ok = await crypto.subtle.verify('Ed25519', key, b64urlDecode(sigB64), enc.encode(data));
-  return !!ok;
+    const ok = await crypto.subtle.verify('Ed25519', key, b64urlDecode(sigB64), enc.encode(data));
+    return !!ok;
+  } catch (error) {
+    console.error('EdDSA JWT verification error:', error);
+    return false;
+  }
 }
 
 function b64url(bytes: ArrayBuffer | Uint8Array): string {

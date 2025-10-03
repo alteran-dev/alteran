@@ -27,7 +27,7 @@ async function generateSigningKey() {
   const privateKeyBase64 = Buffer.from(privateKeyBuffer).toString('base64');
 
   // Export public key (two formats)
-  // 1) raw 32-byte key for DID document (REPO_SIGNING_PUBLIC_KEY)
+  // 1) raw 32-byte key for DID document (REPO_SIGNING_KEY_PUBLIC)
   const publicKeyRaw = await webcrypto.subtle.exportKey('raw', keyPair.publicKey);
   const publicKeyRawBase64 = Buffer.from(publicKeyRaw).toString('base64');
   // 2) SPKI for external verification tools (informational)
@@ -41,7 +41,7 @@ async function generateSigningKey() {
   console.log('Private Key (base64):');
   console.log(privateKeyBase64);
   console.log();
-  console.log('Public Key (raw, base64) — use as REPO_SIGNING_PUBLIC_KEY:');
+  console.log('Public Key (raw, base64) — use as REPO_SIGNING_KEY_PUBLIC:');
   console.log(publicKeyRawBase64);
   console.log();
   console.log('Public Key (SPKI, base64) — informational:');
@@ -56,7 +56,7 @@ async function generateSigningKey() {
   console.log('  Then paste the private key when prompted');
   console.log();
   console.log('To publish the public key in did.json (optional):');
-  console.log('  wrangler secret put REPO_SIGNING_PUBLIC_KEY');
+  console.log('  wrangler secret put REPO_SIGNING_KEY_PUBLIC');
   console.log('  Then paste the raw public key (first value above)');
   console.log();
   console.log('Or add to .dev.vars for local development:');

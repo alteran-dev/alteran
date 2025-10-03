@@ -200,7 +200,7 @@ wrangler secret put ACCESS_TOKEN_SECRET --env production
 wrangler secret put REFRESH_TOKEN_SECRET --env production
 wrangler secret put REPO_SIGNING_KEY --env production
 # Optional: publish public key for DID document
-wrangler secret put REPO_SIGNING_PUBLIC_KEY --env production
+wrangler secret put REPO_SIGNING_KEY_PUBLIC --env production
 ```
 
 ### Using Cloudflare Secret Store (optional)
@@ -373,7 +373,7 @@ wrangler secret put USER_PASSWORD     # Login password
 wrangler secret put ACCESS_TOKEN_SECRET
 wrangler secret put REFRESH_TOKEN_SECRET
 # Optional: publish raw public key for DID document
-wrangler secret put REPO_SIGNING_PUBLIC_KEY
+wrangler secret put REPO_SIGNING_KEY_PUBLIC
 ```
 
 **For Local Development (.dev.vars):**
@@ -382,7 +382,7 @@ PDS_DID=did:plc:your-did-here
 PDS_HANDLE=your-handle.bsky.social
 REPO_SIGNING_KEY=<base64-key-from-step-1>
 # Optional: publish raw 32-byte public key in did.json
-REPO_SIGNING_PUBLIC_KEY=<base64-raw-public-key>
+REPO_SIGNING_KEY_PUBLIC=<base64-raw-public-key>
 USER_PASSWORD=your-password
 ACCESS_TOKEN_SECRET=your-access-secret
 REFRESH_TOKEN_SECRET=your-refresh-secret

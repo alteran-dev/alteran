@@ -15,7 +15,7 @@ describe('did.json exposes publicKeyMultibase when provided', () => {
     const env: any = {
       PDS_DID: 'did:web:example.com',
       PDS_HANDLE: 'user.example.com',
-      REPO_SIGNING_PUBLIC_KEY: b64(pub),
+      REPO_SIGNING_KEY_PUBLIC: b64(pub),
     };
     const req = new Request('http://localhost/.well-known/did.json');
     const res = await (Did as any).GET({ locals: { runtime: { env } }, request: req });

@@ -11,7 +11,7 @@ This is the minimal, one‑time checklist to run a single‑user PDS on Cloudfla
   - `wrangler secret put ACCESS_TOKEN_SECRET`
   - `wrangler secret put REFRESH_TOKEN_SECRET`
   - `wrangler secret put REPO_SIGNING_KEY`
-  - `wrangler secret put REPO_SIGNING_PUBLIC_KEY` (optional; enables key in did.json)
+  - `wrangler secret put REPO_SIGNING_KEY_PUBLIC` (optional; enables key in did.json)
 
   Or run the bootstrap script to generate everything and print commands:
 

@@ -90,6 +90,7 @@ Secret rotation is a critical security practice. This guide covers rotation proc
 3. **Set new signing key**:
    ```bash
    wrangler secret put REPO_SIGNING_KEY --env production
+   wrangler secret put REPO_SIGNING_KEY_PUBLIC --env production
    ```
 
 4. **Trigger repository re-signing**:

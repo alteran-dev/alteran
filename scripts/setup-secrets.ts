@@ -74,7 +74,7 @@ async function main() {
   console.log(`ACCESS_TOKEN_SECRET     = ${accessSecret}`);
   console.log(`REFRESH_TOKEN_SECRET    = ${refreshSecret}`);
   console.log(`REPO_SIGNING_KEY        = <base64 pkcs8, hidden>`);
-  console.log(`REPO_SIGNING_PUBLIC_KEY = ${repo.publicRawB64}`);
+  console.log(`REPO_SIGNING_KEY_PUBLIC = ${repo.publicRawB64}`);
   console.log();
 
   printHeader(`Wrangler Commands (${env})`);
@@ -86,7 +86,7 @@ async function main() {
     `wrangler secret put ACCESS_TOKEN_SECRET${envArg}`,
     `wrangler secret put REFRESH_TOKEN_SECRET${envArg}`,
     `wrangler secret put REPO_SIGNING_KEY${envArg}`,
-    `wrangler secret put REPO_SIGNING_PUBLIC_KEY${envArg}`,
+    `wrangler secret put REPO_SIGNING_KEY_PUBLIC${envArg}`,
   ];
   console.log(cmds.join('\n'));
   console.log();
@@ -97,7 +97,7 @@ async function main() {
   console.log('  ACCESS_TOKEN_SECRET:     ' + accessSecret);
   console.log('  REFRESH_TOKEN_SECRET:    ' + refreshSecret);
   console.log('  REPO_SIGNING_KEY:        ' + repo.privateKeyB64);
-  console.log('  REPO_SIGNING_PUBLIC_KEY: ' + repo.publicRawB64);
+  console.log('  REPO_SIGNING_KEY_PUBLIC: ' + repo.publicRawB64);
 
   if (writeDevVars) {
     const target = path.resolve('.dev.vars');
@@ -112,7 +112,7 @@ async function main() {
         `ACCESS_TOKEN_SECRET=${accessSecret}`,
         `REFRESH_TOKEN_SECRET=${refreshSecret}`,
         `REPO_SIGNING_KEY=${repo.privateKeyB64}`,
-        `REPO_SIGNING_PUBLIC_KEY=${repo.publicRawB64}`,
+        `REPO_SIGNING_KEY_PUBLIC=${repo.publicRawB64}`,
         `PDS_CORS_ORIGIN=*`,
       ].join('\n') + '\n';
       writeFileSync(target, content, 'utf8');

@@ -9,7 +9,7 @@ const SECRET_KEYS = [
   'ACCESS_TOKEN_SECRET',
   'REFRESH_TOKEN_SECRET',
   'REPO_SIGNING_KEY',
-  'REPO_SIGNING_PUBLIC_KEY',
+  'REPO_SIGNING_KEY_PUBLIC',
 ] as const satisfies readonly (keyof Env)[];
 
 function isSecretStoreBinding(value: unknown): value is SecretsStoreSecret {
