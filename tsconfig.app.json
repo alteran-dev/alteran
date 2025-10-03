@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "ESNext",
+    "lib": ["ES2021", "WebWorker"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": [
+    "src/**/*",
+    "!src/pages/**/*" // exclude Astro route modules from typecheck here
+  ],
+  "exclude": ["tests/**/*", "src/pages/**/*"]
+}

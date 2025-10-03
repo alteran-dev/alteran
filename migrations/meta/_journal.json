@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1759427503700,
+      "tag": "0000_neat_havok",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1759445626322,
+      "tag": "0001_moaning_silverclaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1759446916532,
+      "tag": "0002_eager_baron_strucker",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1759446975293,
+      "tag": "0003_lively_baron_strucker",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1759448068564,
+      "tag": "0004_skinny_domino",
+      "breakpoints": true
+    }
+  ]
+}

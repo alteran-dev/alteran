@@ -1,0 +1,1 @@
+CREATE INDEX `commit_log_seq_idx` ON `commit_log` (`seq`);

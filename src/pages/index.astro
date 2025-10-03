@@ -1,0 +1,57 @@
+---
+import { Icon } from 'astro-icon/components';
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <title>Alteran PDS</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background-color: #f0f2f5;
+      }
+      .card {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 0 1rem rgba(0, 0, 0, 0.1);
+        text-align: center;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      .did, .handle {
+        font-family: monospace;
+        background-color: #eee;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Alteran</h1>
+      <p>This is a single-user ATProto Personal Data Server running on Cloudflare.</p>
+      <p>
+        <strong>Handle:</strong> <span class="handle">{import.meta.env.PDS_HANDLE}</span>
+      </p>
+      <p>
+        <strong>DID:</strong> <span class="did">{import.meta.env.PDS_DID}</span>
+      </p>
+      <p>
+        <a href="https://github.com/alteran-dev/alteran" target="_blank" rel="noopener noreferrer">
+          <Icon name="simple-icons:github" />
+          Source Code
+        </a>
+      </p>
+    </div>
+  </body>
+</html>

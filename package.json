@@ -1,0 +1,56 @@
+{
+  "name": "alteran",
+  "module": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "deploy": "astro build && wrangler deploy",
+    "iac:deploy": "bunx alchemy deploy iac/alchemy.run.ts",
+    "iac:destroy": "bunx alchemy destroy iac/alchemy.run.ts",
+    "iac:plan": "bunx alchemy plan iac/alchemy.run.ts",
+    "db:generate": "bunx drizzle-kit generate",
+    "db:apply": "wrangler d1 migrations apply pds",
+    "db:apply:local": "bunx wrangler d1 migrations apply pds --local",
+    "db:apply:local:direct": "wrangler d1 migrations apply pds --local",
+    "db:reset:local": "rm -rf .wrangler/state && rm -rf drizzle && bun run db:generate && bun run db:apply:local"
+  },
+  "devDependencies": {
+    "@astrojs/cloudflare": "^11.0.4",
+    "@atproto/api": "^0.17.0",
+    "@cloudflare/vite-plugin": "^1.13.8",
+    "alchemy": "^0.70.2",
+    "@types/bun": "latest",
+    "astro": "^4.16.9",
+    "drizzle-kit": "^0.31.5",
+    "miniflare": "3",
+    "vite": "^7.1.8",
+    "wrangler": "^4.40.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@iconify-json/simple-icons": "^1.2.53",
+    "@ipld/car": "^5.4.2",
+    "@ipld/dag-cbor": "^9.2.5",
+    "@noble/hashes": "^2.0.1",
+    "astro-icon": "^1.1.5",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.44.6",
+    "@cloudflare/workers-types": "^4.20251001.0",
+    "get-port": "^7.1.0",
+    "hono": "^4.9.9",
+    "multiformats": "^13.4.1",
+    "uint8arrays": "^5.1.0"
+  }
+}

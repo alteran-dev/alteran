@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "ESNext",
+    "lib": ["ES2021", "DOM"],
+    "types": ["bun-types"]
+  },
+  "include": ["tests/**/*", "src/**/*"],
+  "exclude": [
+    "src/_worker.ts",
+    "src/middleware.ts",
+    "src/pages/**/*",
+    "astro.config.mjs"
+  ]
+}
+

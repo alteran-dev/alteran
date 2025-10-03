@@ -1,0 +1,339 @@
+import { CID } from 'multiformats/cid';
+import type { Env } from '../env';
+import { MST, D1Blockstore, Leaf } from '../lib/mst';
+import { drizzle } from 'drizzle-orm/d1';
+import { repo_root } from '../db/schema';
+import { eq } from 'drizzle-orm';
+import type { RepoOp } from '../lib/firehose/frames';
+import * as dagCbor from '@ipld/dag-cbor';
+import { cidForCbor } from '../lib/mst/util';
+import { putRecord as dalPutRecord, deleteRecord as dalDeleteRecord } from '../db/dal';
+import { bumpRoot } from '../db/repo';
+import { generateTid } from '../lib/commit';
+
+/**
+ * Repository Manager
+ * Manages MST-based repository operations
+ */
+export class RepoManager {
+  private blockstore: D1Blockstore;
+  private did: string;
+
+  constructor(private env: Env) {
+    this.blockstore = new D1Blockstore(env);
+    this.did = env.PDS_DID ?? 'did:example:single-user';
+  }
+
+  /**
+   * Get the current MST root
+   */
+  async getRoot(): Promise<MST | null> {
+    const db = drizzle(this.env.DB);
+    const row = await db
+      .select()
+      .from(repo_root)
+      .where(eq(repo_root.did, this.did))
+      .get();
+
+    if (!row || !row.commitCid) return null;
+
+    try {
+      const rootCid = CID.parse(row.commitCid);
+      return MST.load(this.blockstore, rootCid);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get or create the MST root
+   */
+  async getOrCreateRoot(): Promise<MST> {
+    const existing = await this.getRoot();
+    if (existing) return existing;
+
+    // Create new empty MST
+    const mst = await MST.create(this.blockstore, []);
+    return mst;
+  }
+
+  /**
+   * Add a record to the repository
+   */
+  async addRecord(collection: string, rkey: string, record: unknown): Promise<{
+    mst: MST;
+    recordCid: CID;
+    prevMstRoot: CID | null;
+  }> {
+    const key = `${collection}/${rkey}`;
+
+    // Get previous MST root for op extraction
+    const currentMst = await this.getOrCreateRoot();
+    const prevMstRoot = await currentMst.getPointer();
+
+    // Encode record and store in blockstore
+    const recordCid = await this.storeRecord(record);
+
+    // Add the new record
+    const newMst = await currentMst.add(key, recordCid);
+
+    // Store all new MST blocks
+    await this.storeMstBlocks(newMst);
+
+    return { mst: newMst, recordCid, prevMstRoot };
+  }
+
+  /**
+   * High-level helper: create record, persist JSON, bump root, return commit info
+   */
+  async createRecord(collection: string, record: unknown, rkey?: string): Promise<{
+    uri: string;
+    cid: string;
+    commitCid: string;
+    rev: string;
+    ops: RepoOp[];
+  }> {
+    const key = rkey ?? generateTid();
+    const { mst, recordCid, prevMstRoot } = await this.addRecord(collection, key, record);
+
+    // Persist JSON to table for easy reads
+    const uri = `at://${this.did}/${collection}/${key}`;
+    await dalPutRecord(this.env, { uri, did: this.did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
+
+    // Update repo root with signed commit and extract ops
+    const { commitCid, rev, ops } = await bumpRoot(this.env, prevMstRoot ?? undefined);
+
+    return { uri, cid: recordCid.toString(), commitCid, rev, ops };
+  }
+
+  /**
+   * Update a record in the repository
+   */
+  async updateRecord(collection: string, rkey: string, record: unknown): Promise<{
+    mst: MST;
+    recordCid: CID;
+    prevMstRoot: CID | null;
+  }> {
+    const key = `${collection}/${rkey}`;
+
+    // Get previous MST root for op extraction
+    const currentMst = await this.getOrCreateRoot();
+    const prevMstRoot = await currentMst.getPointer();
+
+    // Encode record and store in blockstore
+    const recordCid = await this.storeRecord(record);
+
+    // Update the record
+    const newMst = await currentMst.update(key, recordCid);
+
+    // Store all new MST blocks
+    await this.storeMstBlocks(newMst);
+
+    return { mst: newMst, recordCid, prevMstRoot };
+  }
+
+  /**
+   * High-level helper: put record (update), persist JSON, bump root
+   */
+  async putRecord(collection: string, rkey: string, record: unknown): Promise<{
+    uri: string;
+    cid: string;
+    commitCid: string;
+    rev: string;
+    ops: RepoOp[];
+  }> {
+    const { mst, recordCid, prevMstRoot } = await this.updateRecord(collection, rkey, record);
+    const uri = `at://${this.did}/${collection}/${rkey}`;
+    await dalPutRecord(this.env, { uri, did: this.did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
+    const { commitCid, rev, ops } = await bumpRoot(this.env, prevMstRoot ?? undefined);
+    return { uri, cid: recordCid.toString(), commitCid, rev, ops };
+  }
+
+  /**
+   * Delete a record from the repository
+   */
+  async deleteRecord(collection: string, rkey: string): Promise<{
+    uri: string;
+    commitCid: string;
+    rev: string;
+    ops: RepoOp[];
+  }> {
+    const key = `${collection}/${rkey}`;
+
+    // Get previous MST root for op extraction
+    const currentMst = await this.getOrCreateRoot();
+    const prevMstRoot = await currentMst.getPointer();
+
+    // Delete the record
+    const newMst = await currentMst.delete(key);
+
+    // Store all new MST blocks
+    await this.storeMstBlocks(newMst);
+
+    // Delete from records table
+    const uri = `at://${this.did}/${collection}/${rkey}`;
+    await dalDeleteRecord(this.env, uri);
+
+    const { commitCid, rev, ops } = await bumpRoot(this.env, prevMstRoot ?? undefined);
+    return { uri, commitCid, rev, ops };
+  }
+
+  /**
+   * Get a record from the repository
+   */
+  async getRecord(collection: string, rkey: string): Promise<unknown | null> {
+    const key = `${collection}/${rkey}`;
+
+    const currentMst = await this.getRoot();
+    if (!currentMst) return null;
+
+    const recordCid = await currentMst.get(key);
+    if (!recordCid) return null;
+
+    return this.blockstore.readObj(recordCid);
+  }
+
+  /**
+   * List records in a collection
+   */
+  async listRecords(collection: string, limit = 50, cursor?: string): Promise<{ key: string; cid: CID }[]> {
+    const currentMst = await this.getRoot();
+    if (!currentMst) return [];
+
+    const prefix = `${collection}/`;
+    const leaves = await currentMst.listWithPrefix(prefix, limit);
+
+    return leaves
+      .filter(leaf => !cursor || leaf.key > `${collection}/${cursor}`)
+      .map(leaf => ({
+        key: leaf.key.replace(prefix, ''),
+        cid: leaf.value,
+      }));
+  }
+
+  /**
+   * Update the repo root to point to the new MST
+   */
+  async updateRoot(mst: MST, rev: number): Promise<void> {
+    const db = drizzle(this.env.DB);
+    const rootCid = await mst.getPointer();
+
+    await db
+      .insert(repo_root)
+      .values({
+        did: this.did,
+        commitCid: rootCid.toString(),
+        rev,
+      })
+      .onConflictDoUpdate({
+        target: repo_root.did,
+        set: {
+          commitCid: rootCid.toString(),
+          rev,
+        },
+      })
+      .run();
+  }
+
+  /**
+   * Extract operations from MST diff between two commits
+   * Compares old MST root with new MST root to identify create/update/delete operations
+   */
+  async extractOps(prevRoot: CID | null, newRoot: CID): Promise<RepoOp[]> {
+    const ops: RepoOp[] = [];
+
+    // Load both trees
+    const newMst = await MST.load(this.blockstore, newRoot).getEntries();
+    const prevMst = prevRoot ? await MST.load(this.blockstore, prevRoot).getEntries() : [];
+
+    // Build maps for efficient lookup
+    const prevMap = new Map<string, CID>();
+    const newMap = new Map<string, CID>();
+
+    // Collect all leaves from previous tree
+    await this.collectLeaves(prevMst, prevMap);
+
+    // Collect all leaves from new tree
+    await this.collectLeaves(newMst, newMap);
+
+    // Find creates and updates
+    for (const [path, cid] of Array.from(newMap.entries())) {
+      const prevCid = prevMap.get(path);
+      if (!prevCid) {
+        // New key - create operation
+        ops.push({
+          action: 'create',
+          path,
+          cid,
+        });
+      } else if (!prevCid.equals(cid)) {
+        // Key exists but CID changed - update operation
+        ops.push({
+          action: 'update',
+          path,
+          cid,
+          prev: prevCid,
+        });
+      }
+    }
+
+    // Find deletes
+    for (const [path, prevCid] of Array.from(prevMap.entries())) {
+      if (!newMap.has(path)) {
+        // Key no longer exists - delete operation
+        ops.push({
+          action: 'delete',
+          path,
+          cid: null,
+          prev: prevCid,
+        });
+      }
+    }
+
+    // Sort ops by path for deterministic ordering
+    ops.sort((a, b) => a.path.localeCompare(b.path));
+
+    return ops;
+  }
+
+  /**
+   * Recursively collect all leaves from MST entries into a map
+   */
+  private async collectLeaves(entries: (MST | Leaf)[], map: Map<string, CID>): Promise<void> {
+    for (const entry of entries) {
+      if (entry.isLeaf()) {
+        map.set(entry.key, entry.value);
+      } else {
+        // Recursively collect from subtree
+        const subEntries = await entry.getEntries();
+        await this.collectLeaves(subEntries, map);
+      }
+    }
+  }
+
+  /**
+   * Store a record in the blockstore and return its CID
+   */
+  private async storeRecord(record: unknown): Promise<CID> {
+    const bytes = dagCbor.encode(record);
+    const cid = await cidForCbor(record);
+    await this.blockstore.put(cid, bytes);
+    return cid;
+  }
+
+  /**
+   * Store all blocks from an MST to the blockstore
+   */
+  private async storeMstBlocks(mst: MST): Promise<void> {
+    const { cid, bytes } = await mst.serialize();
+    await this.blockstore.put(cid, bytes);
+
+    // Recursively store child blocks
+    const entries = await mst.getEntries();
+    for (const entry of entries) {
+      if (entry.isTree()) {
+        await this.storeMstBlocks(entry);
+      }
+    }
+  }
+}

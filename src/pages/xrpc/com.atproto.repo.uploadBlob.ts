@@ -1,0 +1,53 @@
+import type { APIContext } from 'astro';
+import { isAuthorized, unauthorized } from '@alteran/lib/auth';
+import { checkRate } from '@alteran/lib/ratelimit';
+import { isAllowedMime } from '@alteran/lib/util';
+import { R2BlobStore } from '@alteran/services/r2-blob-store';
+import { putBlobRef, checkBlobQuota, updateBlobQuota } from '@alteran/db/dal';
+
+export const prerender = false;
+
+export async function POST({ locals, request }: APIContext) {
+  const { env } = locals.runtime;
+  if (!(await isAuthorized(request, env))) return unauthorized();
+
+  const rateLimitResponse = await checkRate(env, request, 'blob');
+  if (rateLimitResponse) return rateLimitResponse;
+
+  const buf = await request.arrayBuffer();
+  const contentType = request.headers.get('content-type') ?? 'application/octet-stream';
+  if (!isAllowedMime(env, contentType)) return new Response(JSON.stringify({ error: 'UnsupportedMediaType' }), { status: 415 });
+
+  // Get DID from environment (single-user PDS)
+  const did = env.PDS_DID ?? 'did:example:single-user';
+
+  // Check quota before upload
+  const canUpload = await checkBlobQuota(env, did, buf.byteLength);
+  if (!canUpload) {
+    return new Response(
+      JSON.stringify({
+        error: 'BlobQuotaExceeded',
+        message: 'Blob storage quota exceeded'
+      }),
+      { status: 413 }
+    );
+  }
+
+  const store = new R2BlobStore(env);
+  try {
+    const res = await store.put(buf, { contentType });
+
+    // Register blob ref with CID-based key
+    await putBlobRef(env, did, res.sha256, res.key, contentType, res.size);
+
+    // Update quota
+    await updateBlobQuota(env, did, res.size, 1);
+
+    return new Response(JSON.stringify({ blob: { ref: { $link: res.key }, mimeType: contentType, size: res.size } }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (e: any) {
+    if (String(e.message || '').startsWith('BlobTooLarge')) return new Response(JSON.stringify({ error: 'PayloadTooLarge' }), { status: 413 });
+    return new Response(JSON.stringify({ error: 'UploadFailed' }), { status: 500 });
+  }
+}
