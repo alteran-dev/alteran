@@ -62,6 +62,7 @@ export default function alteran(options = {}) {
 
   const middlewareEntrypoint = resolvePackagePath('./src/middleware.ts');
   const serverEntrypoint = resolvePackagePath('./src/_worker.ts');
+  const cloudflareServerAdapter = resolvePackagePath('./src/entrypoints/server.ts');
 
   const routes = CORE_ROUTES.slice();
   if (includeRootEndpoint) {
@@ -78,6 +79,60 @@ export default function alteran(options = {}) {
         if (config.output !== 'server') {
           updateConfig({ output: 'server' });
         }
+
+        const existingAlias = config.vite?.resolve?.alias ?? [];
+        const aliasArray = Array.isArray(existingAlias)
+          ? existingAlias.slice()
+          : Object.entries(existingAlias).map(([find, replacement]) => ({ find, replacement }));
+
+        const hasCloudflareAlias = aliasArray.some(
+          (entry) => entry && entry.find === '@astrojs/cloudflare/entrypoints/server.js'
+        );
+
+        if (!hasCloudflareAlias) {
+          aliasArray.push({
+            find: '@astrojs/cloudflare/entrypoints/server.js',
+            replacement: cloudflareServerAdapter,
+          });
+        }
+
+        const vitePlugins = Array.isArray(config.vite?.plugins)
+          ? config.vite.plugins.slice().filter(Boolean)
+          : [];
+
+        vitePlugins.push({
+          name: 'alteran-sequencer-export',
+          enforce: 'post',
+          apply: 'build',
+          transform(code, id) {
+            if (!id.includes('@astrojs-ssr-virtual-entry')) return null;
+            if (!code.includes('const _exports = createExports')) return null;
+            if (code.includes("const Sequencer = _exports['Sequencer'];")) return null;
+
+            const replacedInit = code.replace(
+              'const __astrojsSsrVirtualEntry = _exports.default;',
+              "const Sequencer = _exports['Sequencer'];\nconst __astrojsSsrVirtualEntry = _exports.default;"
+            );
+
+            if (replacedInit === code) return null;
+
+            const replacedExport = replacedInit.replace(
+              'export { __astrojsSsrVirtualEntry as default, pageMap };',
+              'export { Sequencer, __astrojsSsrVirtualEntry as default, pageMap };'
+            );
+
+            return { code: replacedExport, map: null };
+          },
+        });
+
+        updateConfig({
+          vite: {
+            resolve: {
+              alias: aliasArray,
+            },
+            plugins: vitePlugins,
+          },
+        });
 
         if (injectServerEntry) {
           if (config.build?.serverEntry && config.build.serverEntry !== serverEntrypoint) {
