@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -21,3 +24,42 @@ jobs:
         run: bun run build
       - name: TypeScript check (bunx)
         run: bunx -y typescript@5.6.3 -v && bunx -y typescript@5.6.3 -p tsconfig.json --noEmit
+
+  publish:
+    name: Publish Integration
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'release'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          scope: '@alteran'
+          always-auth: true
+      - name: Ensure release tag is semver
+        id: release_version
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          if [[ -z "$TAG" ]]; then
+            echo "No release tag available; aborting publish." >&2
+            exit 1
+          fi
+          if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            echo "Release tag '$TAG' must follow the pattern vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Align package version
+        run: npm version "${{ steps.release_version.outputs.version }}" --no-git-tag-version
+      - name: Publish to npm
+        run: npm publish --access public --provenance

@@ -4,10 +4,16 @@
 
 This repository now ships an Astro integration that turns any Cloudflare Worker-backed Astro app into a single-user ATProto Personal Data Server. Install the package (or link it locally), then add the integration to your `astro.config.mjs`:
 
+```bash
+npm install @alteran/astro
+# or
+bun add @alteran/astro
+```
+
 ```ts
 import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
-import alteran from 'alteran';
+import alteran from '@alteran/astro';
 
 export default defineConfig({
   adapter: cloudflare({ mode: 'advanced' }),
