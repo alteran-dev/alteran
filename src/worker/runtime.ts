@@ -1,8 +1,7 @@
-import { handle } from 'astro/internal/handler';
-import { onRequest } from '../middleware';
 import { seed } from '../db/seed';
 import { validateConfigOrThrow } from '../lib/config';
 import type { Env } from '../env';
+import type { SSRManifest } from 'astro';
 import type {
   ExecutionContext,
   Request as WorkersRequest,
@@ -15,11 +14,19 @@ export type PdsFetchHandler = (
   ctx: ExecutionContext
 ) => Promise<WorkersResponse>;
 
+export interface CreatePdsFetchHandlerOptions {
+  /**
+   * Optionally pass the host project's manifest when composing the worker manually.
+   * When omitted, the integration will load the manifest lazily from the build output.
+   */
+  manifest?: SSRManifest;
+}
+
 /**
  * Returns the Alteran PDS Worker fetch handler so downstream apps can
  * compose it inside their own Cloudflare Worker entrypoint.
  */
-export function createPdsFetchHandler(): PdsFetchHandler {
+export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): PdsFetchHandler {
   return async function fetch(request: WorkersRequest, env: Env, ctx: ExecutionContext) {
     try {
       validateConfigOrThrow(env);
@@ -53,11 +60,41 @@ export function createPdsFetchHandler(): PdsFetchHandler {
       return (await stub.fetch(request as any)) as unknown as WorkersResponse;
     }
 
-    const locals: any = { runtime: { env, ctx, request } };
-    return (await onRequest(locals as any, async () => await handle(locals as any))) as unknown as WorkersResponse;
+    const astroFetch = await getAstroFetch(options);
+    const response = await astroFetch(request, env as any, ctx);
+    return response as unknown as WorkersResponse;
   };
 }
 
-export { onRequest };
+type AstroFetchHandler = (
+  request: WorkersRequest,
+  env: Env,
+  ctx: ExecutionContext
+) => Promise<WorkersResponse>;
+
+let cachedFetchPromise: Promise<AstroFetchHandler> | undefined;
+
+async function loadAstroFetchFromManifest(manifest: SSRManifest): Promise<AstroFetchHandler> {
+  const { createExports } = await import('@astrojs/cloudflare/entrypoints/server.js');
+  const exports = createExports(manifest);
+  return exports.default.fetch as unknown as AstroFetchHandler;
+}
+
+async function getAstroFetch(options?: CreatePdsFetchHandlerOptions): Promise<AstroFetchHandler> {
+  if (options?.manifest) {
+    return loadAstroFetchFromManifest(options.manifest);
+  }
+
+  if (!cachedFetchPromise) {
+    cachedFetchPromise = (async () => {
+      const { manifest } = await import('@astrojs-manifest');
+      return loadAstroFetchFromManifest(manifest as SSRManifest);
+    })();
+  }
+
+  return cachedFetchPromise;
+}
+
+export { onRequest } from '../middleware';
 export { seed };
 export { validateConfigOrThrow };
