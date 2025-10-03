@@ -27,7 +27,7 @@ By default the integration injects all `/xrpc/*` ATProto routes, health/ready ch
 alteran({
   debugRoutes: process.env.NODE_ENV !== 'production',
   includeRootEndpoint: false,
-  injectServerEntry: true,
+  injectServerEntry: true, // opt in if you don't maintain your own worker entrypoint
 });
 ```
 
@@ -35,10 +35,31 @@ The integration automatically:
 - Resolves all injected routes against the packaged runtime without requiring a Vite alias
 - Registers the middleware that applies structured logging and CORS enforcement
 - Injects all PDS HTTP endpoints into the host project
-- Sets `build.serverEntry` to the packaged Cloudflare worker (unless you opt out)
+- Offers the packaged Cloudflare worker entrypoint when you enable `{ injectServerEntry: true }`
 - Publishes ambient env typings so `Env` and `App.Locals` are available from TypeScript
 
 When deploying, continue to configure Wrangler/D1/R2 secrets exactly as before—the integration does not change the runtime requirements.
+
+### Custom Worker Entrypoint
+
+The integration no longer overrides `build.serverEntry` by default. If you need to export additional Durable Objects or otherwise customise the worker, keep your own entrypoint and compose Alteran's runtime helpers instead of copying the internal logic.
+
+```ts
+// src/_worker.ts in your Astro project
+import { createPdsFetchHandler, Sequencer } from '@alteran/astro/worker';
+
+const fetch = createPdsFetchHandler();
+
+export default { fetch };
+
+// Re-export Sequencer so Wrangler can bind the Durable Object namespace
+export { Sequencer };
+
+// Export any additional Durable Objects after this line
+export { MyDurableObject } from './worker/my-durable-object';
+```
+
+Helpers like `onRequest`, `seed`, and `validateConfigOrThrow` are also exported from `@alteran/astro/worker` if you need to build more advanced wrappers (for example, to add request instrumentation before delegating to the PDS handler).
 
 To install dependencies:
 
