@@ -1,6 +1,6 @@
 import type { APIContext } from 'astro';
-import { getRecordsByCids as dalGetByCids } from '@alteran/db/dal';
-import { tryParse } from '@alteran/lib/util';
+import { getRecordsByCids as dalGetByCids } from '../../db/dal';
+import { tryParse } from '../../lib/util';
 
 export const prerender = false;
 

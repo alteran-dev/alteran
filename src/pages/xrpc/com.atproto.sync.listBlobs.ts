@@ -1,6 +1,6 @@
 import type { APIContext } from 'astro';
 import { drizzle } from 'drizzle-orm/d1';
-import { blob_ref } from '@alteran/db/schema';
+import { blob_ref } from '../../db/schema';
 import { eq, gt, and } from 'drizzle-orm';
 
 export const prerender = false;

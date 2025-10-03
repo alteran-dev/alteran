@@ -1,7 +1,7 @@
 import type { APIContext } from 'astro';
-import { getRoot as getRepoRoot } from '@alteran/db/repo';
-import { listRecords as dalListRecords } from '@alteran/db/dal';
-import { tryParse } from '@alteran/lib/util';
+import { getRoot as getRepoRoot } from '../../db/repo';
+import { listRecords as dalListRecords } from '../../db/dal';
+import { tryParse } from '../../lib/util';
 
 export const prerender = false;
 

@@ -32,7 +32,7 @@ alteran({
 ```
 
 The integration automatically:
-- Adds a Vite alias of `@alteran/*` that points to the package runtime
+- Resolves all injected routes against the packaged runtime without requiring a Vite alias
 - Registers the middleware that applies structured logging and CORS enforcement
 - Injects all PDS HTTP endpoints into the host project
 - Sets `build.serverEntry` to the packaged Cloudflare worker (unless you opt out)

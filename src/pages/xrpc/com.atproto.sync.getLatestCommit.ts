@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { getRoot } from '@alteran/db/repo';
+import { getRoot } from '../../db/repo';
 
 export const prerender = false;
 

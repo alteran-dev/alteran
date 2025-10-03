@@ -1,6 +1,6 @@
 import type { APIContext } from 'astro';
 import { drizzle } from 'drizzle-orm/d1';
-import { commit_log } from '@alteran/db/schema';
+import { commit_log } from '../../../db/schema';
 import { desc } from 'drizzle-orm';
 
 export const prerender = false;

@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { getRecord as dalGetRecord, putRecord as dalPutRecord } from '@alteran/db/dal';
+import { getRecord as dalGetRecord, putRecord as dalPutRecord } from '../../db/dal';
 
 export const prerender = false;
 

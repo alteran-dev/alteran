@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { listOrphanBlobKeys, deleteBlobByKey } from '@alteran/db/dal';
+import { listOrphanBlobKeys, deleteBlobByKey } from '../../../db/dal';
 
 export const prerender = false;
 

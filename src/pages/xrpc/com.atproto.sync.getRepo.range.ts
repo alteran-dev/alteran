@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { buildRepoCarRange } from '@alteran/services/car';
+import { buildRepoCarRange } from '../../services/car';
 
 export const prerender = false;
 

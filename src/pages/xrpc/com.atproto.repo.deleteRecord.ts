@@ -1,9 +1,9 @@
 import type { APIContext } from 'astro';
-import { isAuthorized, unauthorized } from '@alteran/lib/auth';
-import { checkRate } from '@alteran/lib/ratelimit';
-import { readJsonBounded } from '@alteran/lib/util';
-import { RepoManager } from '@alteran/services/repo-manager';
-import { notifySequencer } from '@alteran/lib/sequencer';
+import { isAuthorized, unauthorized } from '../../lib/auth';
+import { checkRate } from '../../lib/ratelimit';
+import { readJsonBounded } from '../../lib/util';
+import { RepoManager } from '../../services/repo-manager';
+import { notifySequencer } from '../../lib/sequencer';
 
 export const prerender = false;
 

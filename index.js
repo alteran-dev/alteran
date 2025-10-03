@@ -59,7 +59,6 @@ export default function alteran(options = {}) {
     injectServerEntry = true,
   } = options;
 
-  const aliasTarget = resolvePackagePath('./src');
   const middlewareEntrypoint = resolvePackagePath('./src/middleware.ts');
   const serverEntrypoint = resolvePackagePath('./src/_worker.ts');
 
@@ -78,16 +77,6 @@ export default function alteran(options = {}) {
         if (config.output !== 'server') {
           updateConfig({ output: 'server' });
         }
-
-        updateConfig({
-          vite: {
-            resolve: {
-              alias: {
-                '@alteran': aliasTarget,
-              },
-            },
-          },
-        });
 
         if (injectServerEntry) {
           if (config.build?.serverEntry && config.build.serverEntry !== serverEntrypoint) {

@@ -1,6 +1,6 @@
 import type { APIContext } from 'astro';
-import { RepoManager } from '@alteran/services/repo-manager';
-import { encodeRecordBlock } from '@alteran/services/car';
+import { RepoManager } from '../../services/repo-manager';
+import { encodeRecordBlock } from '../../services/car';
 import * as dagCbor from '@ipld/dag-cbor';
 import { CID } from 'multiformats/cid';
 import { sha256 } from 'multiformats/hashes/sha2';

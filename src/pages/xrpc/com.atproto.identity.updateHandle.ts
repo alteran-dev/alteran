@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { readJson } from '@alteran/lib/util';
+import { readJson } from '../../lib/util';
 
 export const prerender = false;
 

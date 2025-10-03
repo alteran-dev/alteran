@@ -1,8 +1,8 @@
 import type { APIContext } from 'astro';
-import { NotFound } from '@alteran/lib/errors';
-import { D1Blockstore } from '@alteran/lib/mst';
+import { NotFound } from '../../lib/errors';
+import { D1Blockstore } from '../../lib/mst';
 import { CID } from 'multiformats/cid';
-import { encodeExistingBlocksToCAR } from '@alteran/services/car';
+import { encodeExistingBlocksToCAR } from '../../services/car';
 
 export const prerender = false;
 

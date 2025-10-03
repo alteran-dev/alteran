@@ -1,7 +1,7 @@
 import type { APIContext } from 'astro';
-import { RepoManager } from '@alteran/services/repo-manager';
-import { readJson } from '@alteran/lib/util';
-import { bumpRoot } from '@alteran/db/repo';
+import { RepoManager } from '../../services/repo-manager';
+import { readJson } from '../../lib/util';
+import { bumpRoot } from '../../db/repo';
 
 export const prerender = false;
 

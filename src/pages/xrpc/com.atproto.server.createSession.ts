@@ -1,8 +1,8 @@
 import type { APIContext } from 'astro';
-import { signJwt } from '@alteran/lib/jwt';
-import { readJson } from '@alteran/lib/util';
+import { signJwt } from '../../lib/jwt';
+import { readJson } from '../../lib/util';
 import { drizzle } from 'drizzle-orm/d1';
-import { login_attempts } from '@alteran/db/schema';
+import { login_attempts } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 export const prerender = false;

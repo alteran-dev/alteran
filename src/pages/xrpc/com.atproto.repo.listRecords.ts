@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { RepoManager } from '@alteran/services/repo-manager';
+import { RepoManager } from '../../services/repo-manager';
 
 export const prerender = false;
 

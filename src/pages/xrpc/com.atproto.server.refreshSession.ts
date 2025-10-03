@@ -1,9 +1,9 @@
 import type { APIContext } from 'astro';
-import { signJwt, verifyJwt } from '@alteran/lib/jwt';
-import { bearerToken } from '@alteran/lib/util';
-import { lazyCleanupExpiredTokens } from '@alteran/lib/token-cleanup';
+import { signJwt, verifyJwt } from '../../lib/jwt';
+import { bearerToken } from '../../lib/util';
+import { lazyCleanupExpiredTokens } from '../../lib/token-cleanup';
 import { drizzle } from 'drizzle-orm/d1';
-import { token_revocation } from '@alteran/db/schema';
+import { token_revocation } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 export const prerender = false;

@@ -1,11 +1,6 @@
 {
   "compilerOptions": {
     "baseUrl": ".",
-    "paths": {
-      "@alteran/*": [
-        "src/*"
-      ]
-    },
     "moduleResolution": "Bundler",
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,

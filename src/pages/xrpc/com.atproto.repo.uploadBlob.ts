@@ -1,9 +1,9 @@
 import type { APIContext } from 'astro';
-import { isAuthorized, unauthorized } from '@alteran/lib/auth';
-import { checkRate } from '@alteran/lib/ratelimit';
-import { isAllowedMime } from '@alteran/lib/util';
-import { R2BlobStore } from '@alteran/services/r2-blob-store';
-import { putBlobRef, checkBlobQuota, updateBlobQuota } from '@alteran/db/dal';
+import { isAuthorized, unauthorized } from '../../lib/auth';
+import { checkRate } from '../../lib/ratelimit';
+import { isAllowedMime } from '../../lib/util';
+import { R2BlobStore } from '../../services/r2-blob-store';
+import { putBlobRef, checkBlobQuota, updateBlobQuota } from '../../db/dal';
 
 export const prerender = false;
 
