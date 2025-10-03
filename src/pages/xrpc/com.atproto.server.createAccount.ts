@@ -4,6 +4,15 @@ import { createAccountState, getAccountState } from '../../db/dal';
 
 export const prerender = false;
 
+function methodNotAllowedResponse(): Response {
+  return new Response(null, {
+    status: 405,
+    headers: {
+      Allow: 'POST',
+    },
+  });
+}
+
 /**
  * com.atproto.server.createAccount
  *
@@ -16,7 +25,10 @@ export async function POST({ locals, request }: APIContext) {
   const { env } = locals.runtime;
 
   // Require authentication for account creation
-  if (!(await isAuthorized(request, env))) return unauthorized();
+  if (!(await isAuthorized(request, env))) {
+    console.log(JSON.stringify({ level: 'warn', type: 'createAccount', message: 'Unauthorized', method: request.method, url: request.url }));
+    return unauthorized();
+  }
 
   try {
     const body = await request.json() as { did?: string; handle?: string; deactivated?: boolean };
@@ -76,4 +88,12 @@ export async function POST({ locals, request }: APIContext) {
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
+}
+
+export async function HEAD(): Promise<Response> {
+  return methodNotAllowedResponse();
+}
+
+export async function GET(): Promise<Response> {
+  return methodNotAllowedResponse();
 }
