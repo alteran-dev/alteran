@@ -39,7 +39,7 @@ describe('Blob Storage Tests', () => {
     const store = new R2BlobStore(env as any);
 
     const testData = new TextEncoder().encode('test blob data');
-    const result = await store.put(testData.buffer, {
+    const result = await store.put(testData, {
       contentType: 'image/jpeg',
     });
 
@@ -56,7 +56,7 @@ describe('Blob Storage Tests', () => {
     const largeData = new Uint8Array(6 * 1024 * 1024); // 6MB
 
     await expect(async () => {
-      await store.put(largeData.buffer, {
+      await store.put(largeData, {
         contentType: 'image/jpeg',
       });
     }).toThrow();
@@ -78,11 +78,11 @@ describe('Blob Storage Tests', () => {
     const testData = new TextEncoder().encode('identical data');
 
     // Upload same data twice
-    const result1 = await store.put(testData.buffer, {
+    const result1 = await store.put(testData, {
       contentType: 'image/jpeg',
     });
 
-    const result2 = await store.put(testData.buffer, {
+    const result2 = await store.put(testData, {
       contentType: 'image/jpeg',
     });
 

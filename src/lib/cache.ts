@@ -206,9 +206,8 @@ export async function generateETag(content: string | Uint8Array): Promise<string
     ? new TextEncoder().encode(content)
     : content;
 
-  // Create a new ArrayBuffer from the Uint8Array to satisfy type requirements
-  const buffer = new Uint8Array(data).buffer;
-  const hash = await crypto.subtle.digest('SHA-256', buffer);
+  // Digest accepts a BufferSource, so pass the Uint8Array view directly
+  const hash = await crypto.subtle.digest('SHA-256', new Uint8Array(data));
   const hashArray = Array.from(new Uint8Array(hash));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 

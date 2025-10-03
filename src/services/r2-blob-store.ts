@@ -13,6 +13,8 @@ export type PutResult = {
   sha256: string; // base64url
 };
 
+type BlobBody = ArrayBuffer | ArrayBufferView;
+
 export class R2BlobStore {
   constructor(private env: Env) {}
 
@@ -22,10 +24,33 @@ export class R2BlobStore {
     return Number.isFinite(n) && n > 0 ? n : defaultMax;
   }
 
-  private static b64url(bytes: ArrayBuffer): string {
-    const b = new Uint8Array(bytes);
+  private static asUint8Array(data: BlobBody): Uint8Array {
+    if (data instanceof ArrayBuffer) return new Uint8Array(data);
+    if (ArrayBuffer.isView(data)) {
+      const view = data as ArrayBufferView;
+      return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    }
+    // Fallback should never happen because BlobBody restricts input, but keep typing satisfied
+    return new Uint8Array(data as ArrayBuffer);
+  }
+
+  private static toArrayBuffer(data: Uint8Array): ArrayBuffer {
+    const bufferLike = data.buffer;
+    if (bufferLike instanceof ArrayBuffer) {
+      if (data.byteOffset === 0 && data.byteLength === bufferLike.byteLength) {
+        return bufferLike;
+      }
+      return bufferLike.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    }
+    const buffer = new ArrayBuffer(data.byteLength);
+    new Uint8Array(buffer).set(data);
+    return buffer;
+  }
+
+  private static b64url(bytes: ArrayBuffer | Uint8Array): string {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     let s = '';
-    for (const v of b) s += String.fromCharCode(v);
+    for (const v of view) s += String.fromCharCode(v);
     return btoa(s).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
   }
 
@@ -37,16 +62,18 @@ export class R2BlobStore {
     return `${prefix}${shaB64url}`;
   }
 
-  async put(body: ArrayBuffer, opts: PutOptions = {}): Promise<PutResult> {
-    const size = body.byteLength;
+  async put(body: BlobBody, opts: PutOptions = {}): Promise<PutResult> {
+    const view = R2BlobStore.asUint8Array(body);
+    const size = view.byteLength;
     const limit = opts.maxBytes ?? this.maxBytes();
     if (size > limit) throw new Error(`BlobTooLarge:${size}>${limit}`);
 
     const contentType = opts.contentType ?? 'application/octet-stream';
-    const sha = await crypto.subtle.digest('SHA-256', body);
+    const sha = await crypto.subtle.digest('SHA-256', view);
     const shaB64 = R2BlobStore.b64url(sha);
     const key = R2BlobStore.cidKey(shaB64);
-    await this.env.BLOBS.put(key, body, { httpMetadata: { contentType } });
+    const buffer = R2BlobStore.toArrayBuffer(view);
+    await this.env.BLOBS.put(key, buffer, { httpMetadata: { contentType } });
     return { key, size, sha256: shaB64 };
   }
 

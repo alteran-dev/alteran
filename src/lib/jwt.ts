@@ -66,27 +66,27 @@ export async function verifyJwt(env: Env, token: string): Promise<{ valid: boole
 async function hmacJwtSign(payload: any, secret: string): Promise<string> {
   const enc = new TextEncoder();
   const header = { alg: 'HS256', typ: 'JWT' };
-  const h = b64url(enc.encode(JSON.stringify(header)).buffer);
-  const p = b64url(enc.encode(JSON.stringify(payload)).buffer);
+  const h = b64url(enc.encode(JSON.stringify(header)));
+  const p = b64url(enc.encode(JSON.stringify(payload)));
   const data = `${h}.${p}`;
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode(data));
-  const s = b64url(sig as ArrayBuffer);
+  const s = b64url(new Uint8Array(sig));
   return `${h}.${p}.${s}`;
 }
 
 async function hmacJwtVerify(data: string, sigB64: string, secret: string): Promise<boolean> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-  const ok = await crypto.subtle.verify('HMAC', key, b64urlDecode(sigB64) as any, enc.encode(data));
+  const ok = await crypto.subtle.verify('HMAC', key, b64urlDecode(sigB64), enc.encode(data));
   return !!ok;
 }
 
 async function eddsaJwtSign(payload: any, env: Env): Promise<string> {
   const enc = new TextEncoder();
   const header = { alg: 'EdDSA', typ: 'JWT' };
-  const h = b64url(enc.encode(JSON.stringify(header)).buffer);
-  const p = b64url(enc.encode(JSON.stringify(payload)).buffer);
+  const h = b64url(enc.encode(JSON.stringify(header)));
+  const p = b64url(enc.encode(JSON.stringify(payload)));
   const data = `${h}.${p}`;
 
   // Import Ed25519 private key from env
@@ -99,14 +99,14 @@ async function eddsaJwtSign(payload: any, env: Env): Promise<string> {
   const keyBytes = b64urlDecode(keyData);
   const key = await crypto.subtle.importKey(
     'raw',
-    keyBytes.buffer as ArrayBuffer,
+    keyBytes,
     { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
     false,
     ['sign']
   );
 
   const sig = await crypto.subtle.sign('Ed25519', key, enc.encode(data));
-  const s = b64url(sig as ArrayBuffer);
+  const s = b64url(new Uint8Array(sig));
   return `${h}.${p}.${s}`;
 }
 
@@ -122,18 +122,18 @@ async function eddsaJwtVerify(data: string, sigB64: string, env: Env): Promise<b
   const keyBytes = b64urlDecode(keyData);
   const key = await crypto.subtle.importKey(
     'raw',
-    keyBytes.buffer as ArrayBuffer,
+    keyBytes,
     { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
     false,
     ['verify']
   );
 
-  const ok = await crypto.subtle.verify('Ed25519', key, b64urlDecode(sigB64) as any, enc.encode(data));
+  const ok = await crypto.subtle.verify('Ed25519', key, b64urlDecode(sigB64), enc.encode(data));
   return !!ok;
 }
 
-function b64url(bytes: ArrayBuffer): string {
-  const b = new Uint8Array(bytes);
+function b64url(bytes: ArrayBuffer | Uint8Array): string {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   let s = '';
   for (let i = 0; i < b.length; i++) {
     s += String.fromCharCode(b[i]);
