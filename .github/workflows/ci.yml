@@ -44,22 +44,8 @@ jobs:
           registry-url: https://registry.npmjs.org
           scope: '@alteran'
           always-auth: true
-      - name: Ensure release tag is semver
-        id: release_version
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          if [[ -z "$TAG" ]]; then
-            echo "No release tag available; aborting publish." >&2
-            exit 1
-          fi
-          if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
-            VERSION="${BASH_REMATCH[1]}"
-          else
-            echo "Release tag '$TAG' must follow the pattern vMAJOR.MINOR.PATCH." >&2
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Align package version
         run: npm version "${{ steps.release_version.outputs.version }}" --no-git-tag-version
       - name: Publish to npm
         run: npm publish --access public --provenance
+
