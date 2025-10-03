@@ -95,3 +95,36 @@ export async function checkBlobQuota(env: Env, did: string, additionalBytes: num
 
   return (quota.total_bytes + additionalBytes) <= maxBytes;
 }
+
+// Account state management for migration support
+export async function getAccountState(env: Env, did: string) {
+  const db = getDb(env);
+  const { account_state } = await import('./schema');
+  const state = await db.select().from(account_state).where(eq(account_state.did, did)).get();
+  return state ?? null;
+}
+
+export async function createAccountState(env: Env, did: string, active: boolean = false) {
+  const db = getDb(env);
+  const { account_state } = await import('./schema');
+  await db.insert(account_state).values({
+    did,
+    active,
+    created_at: Date.now(),
+  }).run();
+}
+
+export async function setAccountActive(env: Env, did: string, active: boolean) {
+  const db = getDb(env);
+  const { account_state } = await import('./schema');
+  await db.update(account_state)
+    .set({ active })
+    .where(eq(account_state.did, did))
+    .run();
+}
+
+export async function isAccountActive(env: Env, did: string): Promise<boolean> {
+  const state = await getAccountState(env, did);
+  // If no account state exists, assume active (backward compatibility)
+  return state?.active ?? true;
+}

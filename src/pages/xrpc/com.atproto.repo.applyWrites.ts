@@ -2,6 +2,9 @@ import type { APIContext } from 'astro';
 import { RepoManager } from '../../services/repo-manager';
 import { readJson } from '../../lib/util';
 import { bumpRoot } from '../../db/repo';
+import { isAuthorized, unauthorized } from '../../lib/auth';
+import { isAccountActive } from '../../db/dal';
+import { checkRate } from '../../lib/ratelimit';
 
 export const prerender = false;
 
@@ -11,6 +14,23 @@ export const prerender = false;
  */
 export async function POST({ locals, request }: APIContext) {
   const { env } = locals.runtime;
+  if (!(await isAuthorized(request, env))) return unauthorized();
+
+  // Check if account is active
+  const did = env.PDS_DID ?? 'did:example:single-user';
+  const active = await isAccountActive(env, did);
+  if (!active) {
+    return new Response(
+      JSON.stringify({
+        error: 'AccountDeactivated',
+        message: 'Account is deactivated. Activate it before making changes.'
+      }),
+      { status: 403, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  const rateLimitResponse = await checkRate(env, request, 'writes');
+  if (rateLimitResponse) return rateLimitResponse;
 
   try {
     const body = await readJson(request);

@@ -85,5 +85,12 @@ export const blob_quota = sqliteTable('blob_quota', {
   updated_at: integer('updated_at').notNull(),
 });
 
+// Account state for migration support (single-user PDS)
+export const account_state = sqliteTable('account_state', {
+  did: text('did').primaryKey().notNull(),
+  active: integer('active', { mode: 'boolean' }).notNull().default(false),
+  created_at: integer('created_at').notNull(),
+});
+
 export type RecordRow = typeof record.$inferSelect;
 export type NewRecordRow = typeof record.$inferInsert;
