@@ -24,25 +24,21 @@ function extractBlobRefsRecursive(obj: any, refs: Set<string>): void {
   if (!obj || typeof obj !== 'object') return;
 
   // Check for blob reference pattern ($type: 'blob')
+  // This is the ONLY correct way to identify blobs in AT Protocol
   if (obj.$type === 'blob' && obj.ref) {
-    if (typeof obj.ref === 'object' && obj.ref.$link) {
-      refs.add(obj.ref.$link);
+    if (typeof obj.ref === 'object') {
+      // Handle both IPLD link formats: {"$link": "..."} and {"/": "..."}
+      const cid = obj.ref.$link || obj.ref['/'];
+      if (cid && typeof cid === 'string') {
+        refs.add(cid);
+      }
     } else if (typeof obj.ref === 'string') {
       refs.add(obj.ref);
     }
+    return; // Don't recurse into blob objects
   }
 
-  // Check for direct CID link pattern
-  if (obj.$link && typeof obj.$link === 'string') {
-    // Only add if it looks like a blob CID (not a record CID)
-    // Blob CIDs typically start with specific multihash prefixes
-    refs.add(obj.$link);
-  }
-
-  // Check for legacy blob patterns
-  if (obj.cid && typeof obj.cid === 'string') {
-    refs.add(obj.cid);
-  }
+  // DO NOT extract $link or cid fields outside of $type: 'blob' - those are record references!
 
   // Recurse into nested objects and arrays
   if (Array.isArray(obj)) {

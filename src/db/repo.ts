@@ -1,14 +1,15 @@
 import type { Env } from '../env';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { repo_root, commit_log } from './schema';
 import { RepoManager } from '../services/repo-manager';
 import { createCommit, signCommit, commitCid, generateTid, serializeCommit } from '../lib/commit';
 import { CID } from 'multiformats/cid';
+import { resolveSecret } from '../lib/secrets';
 
 export async function getRoot(env: Env) {
   const db = drizzle(env.DB);
-  const did = env.PDS_DID ?? 'did:example:single-user';
+  const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
   return db.select().from(repo_root).where(eq(repo_root.did, did)).get();
 }
 
@@ -22,7 +23,7 @@ export async function bumpRoot(env: Env, prevMstRoot?: CID): Promise<{
   mstRoot: CID;
 }> {
   const db = drizzle(env.DB);
-  const did = env.PDS_DID ?? 'did:example:single-user';
+  const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
 
   // Resolve signing key (use ephemeral dev key if not configured and not production)
   const signingKey = await getSigningKey(env);
@@ -54,19 +55,19 @@ export async function bumpRoot(env: Env, prevMstRoot?: CID): Promise<{
   const cid = await commitCid(signedCommit);
   const cidString = cid.toString();
 
-  // Update repo root
+  // Update repo root - use sql.raw with excluded to properly reference INSERT values
   await db
     .insert(repo_root)
     .values({
       did,
       commitCid: cidString,
-      rev: parseInt(rev, 36), // Convert TID to number for compatibility
+      rev, // Store TID as text
     })
     .onConflictDoUpdate({
       target: repo_root.did,
       set: {
-        commitCid: cidString,
-        rev: parseInt(rev, 36),
+        commitCid: sql.raw('excluded.commit_cid'),
+        rev: sql.raw('excluded.rev'),
       },
     })
     .run();
@@ -111,7 +112,7 @@ export async function appendCommit(env: Env, cid: string, rev: string, data: str
 let cachedDevSigningKey: string | undefined;
 
 async function getSigningKey(env: Env): Promise<string> {
-  const configured = env.REPO_SIGNING_KEY;
+  const configured = await resolveSecret(env.REPO_SIGNING_KEY);
   if (configured && configured.trim() !== '') return configured;
 
   const envName = (env as any).ENVIRONMENT || 'development';

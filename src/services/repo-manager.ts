@@ -3,13 +3,14 @@ import type { Env } from '../env';
 import { MST, D1Blockstore, Leaf } from '../lib/mst';
 import { drizzle } from 'drizzle-orm/d1';
 import { repo_root } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { RepoOp } from '../lib/firehose/frames';
 import * as dagCbor from '@ipld/dag-cbor';
 import { cidForCbor } from '../lib/mst/util';
 import { putRecord as dalPutRecord, deleteRecord as dalDeleteRecord } from '../db/dal';
 import { bumpRoot } from '../db/repo';
 import { generateTid } from '../lib/commit';
+import { resolveSecret } from '../lib/secrets';
 
 /**
  * Repository Manager
@@ -21,7 +22,12 @@ export class RepoManager {
 
   constructor(private env: Env) {
     this.blockstore = new D1Blockstore(env);
-    this.did = env.PDS_DID ?? 'did:example:single-user';
+    // Note: this.did will be set asynchronously, but it's only used in async methods
+    this.did = 'did:example:single-user'; // Default, will be resolved in async methods
+  }
+
+  private async getDid(): Promise<string> {
+    return (await resolveSecret(this.env.PDS_DID)) ?? 'did:example:single-user';
   }
 
   /**
@@ -217,19 +223,22 @@ export class RepoManager {
   async updateRoot(mst: MST, rev: number): Promise<void> {
     const db = drizzle(this.env.DB);
     const rootCid = await mst.getPointer();
+    const did = await this.getDid();
+    const revStr = String(rev);
 
+    // Use sql.raw with excluded to properly reference INSERT values
     await db
       .insert(repo_root)
       .values({
-        did: this.did,
+        did,
         commitCid: rootCid.toString(),
-        rev,
+        rev: revStr,
       })
       .onConflictDoUpdate({
         target: repo_root.did,
         set: {
-          commitCid: rootCid.toString(),
-          rev,
+          commitCid: sql.raw('excluded.commit_cid'),
+          rev: sql.raw('excluded.rev'),
         },
       })
       .run();

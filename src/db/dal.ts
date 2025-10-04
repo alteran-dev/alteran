@@ -1,11 +1,17 @@
 import { getDb } from './client';
 import { record, type NewRecordRow, blob_ref, blob_usage, blob_quota } from './schema';
 import type { Env } from '../env';
-import { eq, inArray, and } from 'drizzle-orm';
+import { eq, inArray, and, sql } from 'drizzle-orm';
 
 export async function putRecord(env: Env, row: NewRecordRow) {
   const db = getDb(env);
-  await db.insert(record).values(row).onConflictDoUpdate({ target: record.uri, set: { cid: row.cid, json: row.json } });
+  await db.insert(record).values(row).onConflictDoUpdate({
+    target: record.uri,
+    set: {
+      cid: sql.raw(`excluded.${record.cid.name}`),
+      json: sql.raw(`excluded.${record.json.name}`)
+    }
+  });
 }
 
 export async function getRecord(env: Env, uri: string) {
@@ -35,7 +41,15 @@ export async function putBlobRef(env: Env, did: string, cid: string, key: string
   await db
     .insert(blob_ref)
     .values({ did, cid, key, mime, size })
-    .onConflictDoUpdate({ target: blob_ref.cid, set: { did, key, mime, size } });
+    .onConflictDoUpdate({
+      target: blob_ref.cid,
+      set: {
+        did: sql.raw(`excluded.${blob_ref.did.name}`),
+        key: sql.raw(`excluded.${blob_ref.key.name}`),
+        mime: sql.raw(`excluded.${blob_ref.mime.name}`),
+        size: sql.raw(`excluded.${blob_ref.size.name}`)
+      }
+    });
 }
 
 export async function setRecordBlobUsage(env: Env, uri: string, keys: string[]) {
@@ -71,20 +85,24 @@ export async function updateBlobQuota(env: Env, did: string, bytesAdded: number,
   const db = getDb(env);
   const current = await getBlobQuota(env, did);
 
+  const newTotalBytes = current.total_bytes + bytesAdded;
+  const newBlobCount = current.blob_count + countAdded;
+  const now = Date.now();
+
   await db
     .insert(blob_quota)
     .values({
       did,
-      total_bytes: current.total_bytes + bytesAdded,
-      blob_count: current.blob_count + countAdded,
-      updated_at: Date.now(),
+      total_bytes: newTotalBytes,
+      blob_count: newBlobCount,
+      updated_at: now,
     })
     .onConflictDoUpdate({
       target: blob_quota.did,
       set: {
-        total_bytes: current.total_bytes + bytesAdded,
-        blob_count: current.blob_count + countAdded,
-        updated_at: Date.now(),
+        total_bytes: sql.raw(`excluded.${blob_quota.total_bytes.name}`),
+        blob_count: sql.raw(`excluded.${blob_quota.blob_count.name}`),
+        updated_at: sql.raw(`excluded.${blob_quota.updated_at.name}`),
       },
     });
 }

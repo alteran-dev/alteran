@@ -4,6 +4,7 @@ import { checkRate } from '../../lib/ratelimit';
 import { isAllowedMime } from '../../lib/util';
 import { R2BlobStore } from '../../services/r2-blob-store';
 import { putBlobRef, checkBlobQuota, updateBlobQuota, isAccountActive } from '../../db/dal';
+import { resolveSecret } from '../../lib/secrets';
 
 export const prerender = false;
 
@@ -12,7 +13,7 @@ export async function POST({ locals, request }: APIContext) {
   if (!(await isAuthorized(request, env))) return unauthorized();
 
   // Get DID from environment (single-user PDS)
-  const did = env.PDS_DID ?? 'did:example:single-user';
+  const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
 
   // Check if account is active
   const active = await isAccountActive(env, did);
@@ -31,7 +32,10 @@ export async function POST({ locals, request }: APIContext) {
 
   const buf = await request.arrayBuffer();
   const contentType = request.headers.get('content-type') ?? 'application/octet-stream';
-  if (!isAllowedMime(env, contentType)) return new Response(JSON.stringify({ error: 'UnsupportedMediaType' }), { status: 415 });
+
+  // Skip MIME type validation during migration - accept all types
+  // Uncomment the line below to re-enable MIME type restrictions after migration
+  // if (!isAllowedMime(env, contentType)) return new Response(JSON.stringify({ error: 'UnsupportedMediaType' }), { status: 415 });
 
   // Check quota before upload
   const canUpload = await checkBlobQuota(env, did, buf.byteLength);

@@ -72,23 +72,107 @@ export class D1Blockstore implements WritableBlockstore {
 
   async put(cid: CID, bytes: Uint8Array): Promise<void> {
     const db = drizzle(this.env.DB);
+    const cidStr = cid.toString();
 
-    // Encode Uint8Array to base64 string for storage
-    const base64 = btoa(String.fromCharCode(...Array.from(bytes)));
+    // Check if block already exists - D1 has issues with ON CONFLICT DO NOTHING
+    const existing = await db
+      .select({ cid: blockstore.cid })
+      .from(blockstore)
+      .where(eq(blockstore.cid, cidStr))
+      .get();
 
-    await db
-      .insert(blockstore)
-      .values({
-        cid: cid.toString(),
-        bytes: base64,
-      })
-      .onConflictDoNothing()
-      .run();
+    if (existing) {
+      // Block already exists, skip insert
+      return;
+    }
+
+    // Encode Uint8Array to base64 string for storage. Chunk to avoid call-stack limits.
+    let binary = '';
+    const CHUNK_SIZE = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE));
+    }
+    const base64 = btoa(binary);
+
+    try {
+      await db
+        .insert(blockstore)
+        .values({
+          cid: cidStr,
+          bytes: base64,
+        })
+        .run();
+    } catch (error: any) {
+      // If we get a unique constraint error, another request inserted it - that's ok
+      if (error?.message?.includes('UNIQUE constraint failed') ||
+          error?.message?.includes('constraint failed')) {
+        return;
+      }
+      console.error(JSON.stringify({
+        level: 'error',
+        type: 'blockstore_put',
+        cid: cidStr,
+        size: bytes.byteLength,
+        message: error?.message,
+      }));
+      throw error;
+    }
   }
 
   async putMany(blocks: Map<CID, Uint8Array>): Promise<void> {
-    for (const [cid, bytes] of Array.from(blocks)) {
-      await this.put(cid, bytes);
+    const db = drizzle(this.env.DB);
+    const BATCH_SIZE = 100; // Insert 100 blocks at a time
+    const entries = Array.from(blocks.entries());
+
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE);
+      const values = [];
+
+      for (const [cid, bytes] of batch) {
+        const cidStr = cid.toString();
+
+        // Check if block already exists
+        const existing = await db
+          .select({ cid: blockstore.cid })
+          .from(blockstore)
+          .where(eq(blockstore.cid, cidStr))
+          .get();
+
+        if (existing) continue;
+
+        // Encode to base64
+        let binary = '';
+        const CHUNK_SIZE = 0x8000;
+        for (let j = 0; j < bytes.length; j += CHUNK_SIZE) {
+          binary += String.fromCharCode(...bytes.subarray(j, j + CHUNK_SIZE));
+        }
+        const base64 = btoa(binary);
+
+        values.push({ cid: cidStr, bytes: base64 });
+      }
+
+      if (values.length > 0) {
+        try {
+          await db.insert(blockstore).values(values).run();
+        } catch (error: any) {
+          // If batch insert fails, fall back to individual inserts
+          for (const value of values) {
+            try {
+              await db.insert(blockstore).values(value).run();
+            } catch (e: any) {
+              if (!e?.message?.includes('UNIQUE constraint failed') &&
+                  !e?.message?.includes('constraint failed')) {
+                console.error(JSON.stringify({
+                  level: 'error',
+                  type: 'blockstore_put_many',
+                  cid: value.cid,
+                  message: e?.message,
+                }));
+              }
+            }
+          }
+        }
+      }
     }
   }
 

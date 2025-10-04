@@ -3,7 +3,7 @@ import { sqliteTable, text, integer, index, primaryKey } from 'drizzle-orm/sqlit
 export const repo_root = sqliteTable('repo_root', {
   did: text('did').primaryKey().notNull(),
   commitCid: text('commit_cid').notNull(),
-  rev: integer('rev').notNull(),
+  rev: text('rev').notNull(), // TID format (e.g., "3m2biurz7cl27")
 });
 
 export const record = sqliteTable('record', {

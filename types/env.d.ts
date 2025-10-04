@@ -34,6 +34,7 @@ declare global {
     JWT_ALGORITHM?: string;
     REPO_SIGNING_KEY?: string | SecretsStoreSecret;
     REPO_SIGNING_KEY_PUBLIC?: string | SecretsStoreSecret;
+    PDS_PLC_ROTATION_KEY?: string | SecretsStoreSecret;
     PDS_RATE_LIMIT_PER_MIN?: string;
     PDS_MAX_JSON_BYTES?: string;
     PDS_CORS_ORIGIN?: string;

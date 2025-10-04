@@ -10,6 +10,7 @@ const SECRET_KEYS = [
   'REFRESH_TOKEN_SECRET',
   'REPO_SIGNING_KEY',
   'REPO_SIGNING_KEY_PUBLIC',
+  'PDS_PLC_ROTATION_KEY',
 ] as const satisfies readonly (keyof Env)[];
 
 function isSecretStoreBinding(value: unknown): value is SecretsStoreSecret {

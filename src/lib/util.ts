@@ -38,10 +38,25 @@ export function bearerToken(request: Request): string | null {
 }
 
 export function isAllowedMime(env: any, mime: string): boolean {
-  const def = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'];
+  const def = [
+    // Images
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif',
+    // Videos
+    'video/mp4', 'video/mpeg', 'video/webm', 'video/quicktime',
+    // Audio
+    'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/webm',
+    // JSON (for some Bluesky data)
+    'application/json',
+    // Generic fallback
+    'application/octet-stream'
+  ];
   const raw = (env.PDS_ALLOWED_MIME as string | undefined) ?? def.join(',');
   const set = new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
-  return set.has(mime.toLowerCase());
+
+  // Extract base MIME type (remove charset and other parameters)
+  const baseMime = mime.toLowerCase().split(';')[0].trim();
+
+  return set.has(baseMime);
 }
 
 export function randomRkey(): string {
