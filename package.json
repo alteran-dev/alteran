@@ -1,6 +1,6 @@
 {
   "name": "@alteran/astro",
-  "version": "0.1.13",
+  "version": "0.1.15",
   "description": "Astro integration for running a Cloudflare-hosted Bluesky PDS with Alteran.",
   "module": "index.js",
   "types": "index.d.ts",
@@ -54,6 +54,9 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@atproto/crypto": "^0.4.4",
+    "@cloudflare/workers-types": "^4.20251001.0",
+    "@did-plc/lib": "^0.0.4",
     "@iconify-json/simple-icons": "^1.2.53",
     "@ipld/car": "^5.4.2",
     "@ipld/dag-cbor": "^9.2.5",
@@ -62,7 +65,6 @@
     "astro-icon": "^1.1.5",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.44.6",
-    "@cloudflare/workers-types": "^4.20251001.0",
     "get-port": "^7.1.0",
     "hono": "^4.9.9",
     "multiformats": "^13.4.1",
