@@ -39,17 +39,13 @@ export async function GET({ locals, request }: APIContext) {
     const pkcs8 = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) pkcs8[i] = bin.charCodeAt(i);
 
-    const privateKey = await crypto.subtle.importKey(
-      'pkcs8',
-      pkcs8,
-      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-      true,
-      ['sign']
-    );
-
-    // Export public key as raw bytes
-    const publicKeyRaw = await crypto.subtle.exportKey('raw', privateKey);
-    const publicKeyBytes = new Uint8Array(publicKeyRaw as ArrayBuffer);
+    // Ed25519 PKCS#8 format: the public key is the last 32 bytes of the private key section
+    // PKCS#8 structure for Ed25519:
+    // - Header (16 bytes)
+    // - Private key (32 bytes)
+    // - Public key (32 bytes)
+    // Total: 80 bytes for unencrypted PKCS#8
+    const publicKeyBytes = pkcs8.slice(-32);
 
     // Create did:key from public key
     // Ed25519 multicodec prefix is 0xed01

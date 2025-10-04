@@ -32,6 +32,13 @@ export async function POST({ locals, request }: APIContext) {
 
     const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
 
+    console.log('Submitting PLC operation:', {
+      did,
+      operationType: operation.type,
+      hasSig: !!operation.sig,
+      prev: operation.prev
+    });
+
     // Submit to PLC directory
     const plcResponse = await fetch(`https://plc.directory/${did}`, {
       method: 'POST',
@@ -41,16 +48,31 @@ export async function POST({ locals, request }: APIContext) {
       body: JSON.stringify(operation)
     });
 
+    const responseHeaders: Record<string, string> = {};
+    plcResponse.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
+    console.log('PLC response:', {
+      status: plcResponse.status,
+      statusText: plcResponse.statusText,
+      headers: responseHeaders
+    });
+
     if (!plcResponse.ok) {
       const errorText = await plcResponse.text();
+      console.error('PLC directory error:', errorText);
       return new Response(
         JSON.stringify({
           error: 'PlcOperationFailed',
-          message: `PLC directory rejected operation: ${errorText}`
+          message: `PLC directory rejected operation (${plcResponse.status}): ${errorText}`
         }),
         { status: plcResponse.status, headers: { 'Content-Type': 'application/json' } }
       );
     }
+
+    const plcResult = await plcResponse.text();
+    console.log('PLC submission successful:', plcResult);
 
     return new Response(
       JSON.stringify({ success: true }),

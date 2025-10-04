@@ -1,36 +1,35 @@
 import { defineMiddleware, sequence } from 'astro:middleware';
 
 const cors = defineMiddleware(async ({ locals, request }, next) => {
-  const { env } = (locals as any).runtime ?? (locals as any);
-  const corsOrigins = (env.PDS_CORS_ORIGIN ?? '*').split(',').map((s: string) => s.trim()).filter(Boolean);
-  const origin = request.headers.get('origin') ?? '';
-
-  // In production, never allow wildcard - require explicit origins
-  const isProduction = env.PDS_HOSTNAME && !env.PDS_HOSTNAME.includes('localhost');
-  const allowWildcard = !isProduction && corsOrigins.includes('*');
-
-  // Check if origin is in allowlist
-  const isAllowed = allowWildcard || corsOrigins.includes(origin);
+  // Match atproto CORS implementation: use wildcard for public endpoints
+  // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
+  // For requests without credentials, "*" can be specified as a wildcard
+  // This is safer than reflecting the request origin and matches atproto standard
 
   if (request.method === 'OPTIONS') {
-    if (!isAllowed) {
-      return new Response('CORS origin not allowed', { status: 403 });
-    }
-
+    // CORS preflight - match atproto PDS implementation
     const headers = new Headers({
-      'Access-Control-Allow-Origin': allowWildcard ? '*' : origin,
-      'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400', // 24 hours
+      'Access-Control-Allow-Origin': '*',
+      // Use wildcard for methods (atproto standard)
+      'Access-Control-Allow-Methods': '*',
+      // Use wildcard for headers to allow atproto-accept-labelers and other custom headers
+      'Access-Control-Allow-Headers': '*',
+      // Match atproto: 1 day max-age for CORS preflight cache
+      'Access-Control-Max-Age': '86400',
     });
     return new Response(null, { status: 204, headers });
   }
 
   const response = await next();
 
-  if (isAllowed) {
-    response.headers.set('Access-Control-Allow-Origin', allowWildcard ? '*' : origin);
-    response.headers.set('Vary', 'Origin');
+  // Set CORS headers on all responses (atproto standard)
+  response.headers.set('Access-Control-Allow-Origin', '*');
+
+  // Expose DPoP-Nonce header for OAuth clients (atproto standard)
+  // This allows clients to read the DPoP-Nonce header from responses
+  const dpopNonce = response.headers.get('DPoP-Nonce');
+  if (dpopNonce) {
+    response.headers.set('Access-Control-Expose-Headers', 'DPoP-Nonce');
   }
 
   return response;
