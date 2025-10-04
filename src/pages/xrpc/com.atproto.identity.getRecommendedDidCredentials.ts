@@ -1,7 +1,7 @@
 import type { APIContext } from 'astro';
-import { Secp256k1Keypair } from '@atproto/crypto';
 import { isAuthorized, unauthorized } from '../../lib/auth';
 import { resolveSecret } from '../../lib/secrets';
+import * as uint8arrays from 'uint8arrays';
 
 export const prerender = false;
 
@@ -21,9 +21,9 @@ export async function GET({ locals, request }: APIContext) {
     const handle = (await resolveSecret(env.PDS_HANDLE)) ?? 'example.com';
     const hostname = env.PDS_HOSTNAME ?? handle;
 
-    // Load signing key
-    const signingKeyHex = await resolveSecret(env.REPO_SIGNING_KEY);
-    if (!signingKeyHex) {
+    // Load signing key (Ed25519 PKCS#8 base64)
+    const signingKeyBase64 = await resolveSecret(env.REPO_SIGNING_KEY);
+    if (!signingKeyBase64) {
       return new Response(
         JSON.stringify({
           error: 'InvalidRequest',
@@ -33,7 +33,32 @@ export async function GET({ locals, request }: APIContext) {
       );
     }
 
-    const signingKey = await Secp256k1Keypair.import(signingKeyHex);
+    // Import Ed25519 private key from PKCS#8 base64
+    const b64 = signingKeyBase64.replace(/\s+/g, '');
+    const bin = atob(b64);
+    const pkcs8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) pkcs8[i] = bin.charCodeAt(i);
+
+    const privateKey = await crypto.subtle.importKey(
+      'pkcs8',
+      pkcs8,
+      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
+      true,
+      ['sign']
+    );
+
+    // Export public key as raw bytes
+    const publicKeyRaw = await crypto.subtle.exportKey('raw', privateKey);
+    const publicKeyBytes = new Uint8Array(publicKeyRaw as ArrayBuffer);
+
+    // Create did:key from public key
+    // Ed25519 multicodec prefix is 0xed01
+    const multicodecPrefix = new Uint8Array([0xed, 0x01]);
+    const multicodecKey = new Uint8Array(multicodecPrefix.length + publicKeyBytes.length);
+    multicodecKey.set(multicodecPrefix);
+    multicodecKey.set(publicKeyBytes, multicodecPrefix.length);
+
+    const didKey = 'did:key:z' + uint8arrays.toString(multicodecKey, 'base58btc');
 
     // Get current PLC data to preserve rotation keys
     const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
@@ -49,7 +74,7 @@ export async function GET({ locals, request }: APIContext) {
       rotationKeys,
       alsoKnownAs: [`at://${handle}`],
       verificationMethods: {
-        atproto: signingKey.did()
+        atproto: didKey
       },
       services: {
         atproto_pds: {
