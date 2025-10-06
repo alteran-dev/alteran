@@ -108,9 +108,7 @@ export function validateConfig(env: Env): ConfigValidationResult {
     warnings.push('REPO_SIGNING_KEY is not set - repository commits will not be signed');
   }
 
-  if (!env.PDS_SERVICE_SIGNING_KEY_HEX) {
-    warnings.push('PDS_SERVICE_SIGNING_KEY_HEX is not set - service-to-service authentication will be disabled');
-  }
+  // Service-auth now uses REPO_SIGNING_KEY (Ed25519). No separate service key required.
 
   const valid = missing.length === 0;
 
@@ -209,7 +207,7 @@ export function getConfig(env: Env) {
     hostname: env.PDS_HOSTNAME,
     accessTtlSec: env.PDS_ACCESS_TTL_SEC ? parseInt(env.PDS_ACCESS_TTL_SEC) : 3600,
     refreshTtlSec: env.PDS_REFRESH_TTL_SEC ? parseInt(env.PDS_REFRESH_TTL_SEC) : 2592000,
-    serviceSigningKeyHex: env.PDS_SERVICE_SIGNING_KEY_HEX,
+    serviceSigningKeyHex: undefined,
   };
 }
 

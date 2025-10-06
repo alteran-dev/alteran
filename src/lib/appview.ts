@@ -1,6 +1,5 @@
-import { Secp256k1Keypair } from '@atproto/crypto';
 import type { Env } from '../env';
-import { resolveSecret } from './secrets';
+import { getRuntimeString } from './secrets';
 import { authenticateRequest, unauthorized } from './auth';
 
 const DEFAULT_APPVIEW_URL = 'https://public.api.bsky.app';
@@ -12,7 +11,6 @@ export interface AppViewConfig {
   cdnUrlPattern?: string;
 }
 
-let cachedSigningKey: Promise<Secp256k1Keypair> | null = null;
 
 const didDocumentCache = new Map<string, Promise<unknown>>();
 
@@ -257,23 +255,8 @@ function extractServiceEndpoint(service: any): string | null {
   return null;
 }
 
-async function getServiceSigningKey(env: Env): Promise<Secp256k1Keypair> {
-  if (!cachedSigningKey) {
-    cachedSigningKey = (async () => {
-      const configured =
-        (await resolveSecret(env.PDS_SERVICE_SIGNING_KEY_HEX as any)) ??
-        (await resolveSecret(env.PDS_PLC_ROTATION_KEY as any));
-
-      if (!configured || configured.trim() === '') {
-        throw new Error('Service signing key is not configured');
-      }
-
-      return Secp256k1Keypair.import(configured.trim());
-    })();
-  }
-
-  return cachedSigningKey;
-}
+// For service auth, AppView verifies against the issuer DID's "atproto" key.
+// We sign service JWTs with the same key used for repo commits (REPO_SIGNING_KEY).
 
 export function getAppViewConfig(env: Env): AppViewConfig | null {
   const url = (typeof env.PDS_BSKY_APP_VIEW_URL === 'string' && env.PDS_BSKY_APP_VIEW_URL.trim() !== '')
@@ -299,13 +282,10 @@ async function createServiceJwt(
   lexiconMethod: string | null,
   expiresInSeconds = 60,
 ): Promise<string> {
-  const keypair = await getServiceSigningKey(env);
+  // Sign with Ed25519 (EdDSA) using REPO_SIGNING_KEY so it matches the DID's
+  // atproto key after migration. No K256 fallback to avoid mismatches.
   const now = Math.floor(Date.now() / 1000);
   const exp = now + Math.max(1, expiresInSeconds);
-  const header = {
-    typ: 'JWT',
-    alg: keypair.jwtAlg,
-  };
   const payload: Record<string, unknown> = {
     iss: issuerDid,
     aud: audienceDid,
@@ -313,16 +293,36 @@ async function createServiceJwt(
     exp,
     jti: randomHex(),
   };
-  if (lexiconMethod) {
-    payload.lxm = lexiconMethod;
+  if (lexiconMethod) payload.lxm = lexiconMethod;
+
+  // Use Ed25519 via REPO_SIGNING_KEY
+  const repoKeyB64 = await getRuntimeString(env, 'REPO_SIGNING_KEY', '');
+  if (repoKeyB64 && repoKeyB64.trim() !== '') {
+    const header = { typ: 'JWT', alg: 'EdDSA' };
+    const encodedHeader = encodeJson(header as any);
+    const encodedPayload = encodeJson(payload);
+    const toSign = `${encodedHeader}.${encodedPayload}`;
+    const signature = await ed25519Sign(repoKeyB64.trim(), toSign);
+    const encodedSignature = encodeBase64Url(signature);
+    return `${toSign}.${encodedSignature}`;
   }
 
-  const encodedHeader = encodeJson(header);
-  const encodedPayload = encodeJson(payload);
-  const toSign = `${encodedHeader}.${encodedPayload}`;
-  const signature = await keypair.sign(new TextEncoder().encode(toSign));
-  const encodedSignature = encodeBase64Url(signature);
-  return `${toSign}.${encodedSignature}`;
+  throw new Error('REPO_SIGNING_KEY not configured for service-auth');
+}
+
+async function ed25519Sign(pkcs8Base64: string, data: string): Promise<Uint8Array> {
+  const keyBytes = base64UrlToBytes(pkcs8Base64);
+  const key = await crypto.subtle.importKey('pkcs8', keyBytes, { name: 'Ed25519' } as any, false, ['sign']);
+  const sig = await crypto.subtle.sign('Ed25519', key, new TextEncoder().encode(data));
+  return new Uint8Array(sig);
+}
+
+function base64UrlToBytes(b64: string): Uint8Array {
+  const cleaned = b64.replace(/\s+/g, '');
+  const bin = atob(cleaned);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 const FORWARDED_HEADERS = [
@@ -356,6 +356,13 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
   if (!config) {
     console.log('proxyAppView: No appview config, using fallback');
     return fallback ? await fallback() : new Response('AppView not configured', { status: 501 });
+  }
+
+  // Emergency kill-switch: allow deployments to bypass AppView entirely
+  // while service-auth/DID alignment is being verified.
+  if ((env as any).PDS_APPVIEW_FORCE_FALLBACK === '1') {
+    console.log('proxyAppView: PDS_APPVIEW_FORCE_FALLBACK=1, using fallback');
+    if (fallback) return fallback();
   }
 
   console.log('proxyAppView: AppView config found:', { url: config.url, did: config.did });
@@ -439,8 +446,14 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
 
   let serviceJwt: string;
   try {
-    console.log('proxyAppView: Creating service JWT for', { iss: auth.claims.sub, aud: target.did, lxm });
-    serviceJwt = await createServiceJwt(env, auth.claims.sub, target.did, lxm);
+    // Use the viewer's DID (subject) as the issuer for service auth,
+    // matching AppView expectations for standard requests.
+    const issuerDid = auth.claims.sub;
+    if (!issuerDid || !issuerDid.startsWith('did:')) {
+      throw new Error(`Invalid issuer DID: ${issuerDid || '(empty)'}`);
+    }
+    console.log('proxyAppView: Creating service JWT for', { iss: issuerDid, aud: target.did, lxm });
+    serviceJwt = await createServiceJwt(env, issuerDid, target.did, lxm);
     console.log('proxyAppView: Service JWT created successfully');
   } catch (error) {
     console.error('AppView service token error:', error);
@@ -493,6 +506,12 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
     console.log('proxyAppView: Fetching upstream');
     const upstream = await fetch(upstreamUrl.toString(), init);
     console.log('proxyAppView: Upstream response:', { status: upstream.status, statusText: upstream.statusText });
+
+    // Use fallback if AppView returns 404 (not indexed) or 401 (key mismatch/approval pending)
+    if ((upstream.status === 404 || upstream.status === 401) && fallback) {
+      console.log('proxyAppView: AppView returned', upstream.status, ', using fallback');
+      return fallback();
+    }
 
     const responseHeaders = new Headers(upstream.headers);
     return new Response(upstream.body, {

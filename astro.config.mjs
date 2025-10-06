@@ -24,10 +24,6 @@ export default defineConfig({
       USER_PASSWORD: envField.string({ context: "server", access: "secret" }),
       ACCESS_TOKEN: envField.string({ context: "server", access: "secret" }),
       REFRESH_TOKEN: envField.string({ context: "server", access: "secret" }),
-      PDS_SERVICE_SIGNING_KEY_HEX: envField.string({
-        context: "server",
-        access: "secret",
-      }),
       PDS_ALLOWED_MIME: envField.string({
         context: "server",
         access: "secret",
@@ -98,7 +94,7 @@ export default defineConfig({
       }),
       REPO_SIGNING_PUBLIC_KEY: envField.string({
         context: "server",
-        access: "secret",
+        access: "public",
         optional: true,
       }),
     },

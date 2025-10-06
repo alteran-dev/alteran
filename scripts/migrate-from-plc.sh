@@ -33,8 +33,6 @@ POLL_SECS_DEFAULT="300"
 NO_POLL_DEFAULT="false"
 SKIP_BLOBS_DEFAULT="false"
 
-# Optional: prompt for PDS_SERVICE_SIGNING_KEY_HEX so the operator has it handy
-
 log() { printf "[%s] %s\n" "$(date -Iseconds)" "$*"; }
 err() { printf "[ERROR] %s\n" "$*" >&2; }
 
@@ -92,24 +90,6 @@ done
 require_cmd curl
 require_cmd jq
 require_cmd awk
-
-prompt_service_signing_key_hex() {
-  # Prefer env var if set, otherwise prompt
-  local val="${PDS_SERVICE_SIGNING_KEY_HEX:-}"
-  if [[ -z "$val" ]]; then
-    read -r -s -p "Enter PDS_SERVICE_SIGNING_KEY_HEX (64 hex chars), or leave blank to skip: " val || true
-    echo
-  fi
-  if [[ -n "$val" ]] && ! [[ "$val" =~ ^[0-9a-fA-F]{64}$ ]]; then
-    log "WARN: Provided value does not look like 64 hex chars."
-  fi
-  if [[ -n "$val" ]]; then
-    export PDS_SERVICE_SIGNING_KEY_HEX="$val"
-    log "Captured PDS_SERVICE_SIGNING_KEY_HEX for this session."
-  else
-    log "No PDS_SERVICE_SIGNING_KEY_HEX provided. Service-to-service auth may be disabled."
-  fi
-}
 
 prompt_value() {
   # $1 var name, $2 prompt label, $3 default (optional)
@@ -341,73 +321,69 @@ list_blobs_from_old() {
   echo "$all_cids" | grep -v '^$'
 }
 
+list_missing_blobs_from_new() {
+  # Page through com.atproto.repo.listMissingBlobs on the NEW PDS
+  local cursor=""
+  local all_missing=""
+  while :; do
+    local url="$NEW/xrpc/com.atproto.repo.listMissingBlobs?limit=500"
+    if [[ -n "$cursor" ]]; then url="$url&cursor=$cursor"; fi
+    local res
+    res=$(curl -s "$url" -H "authorization: Bearer $ACCESS")
+    # Our implementation returns { blobs: [{cid}], cursor }
+    local cids
+    cids=$(echo "$res" | jq -r '.blobs[]?.cid // empty')
+    if [[ -z "$cids" ]]; then
+      break
+    fi
+    all_missing+="$cids"$'\n'
+    cursor=$(echo "$res" | jq -r '.cursor // empty')
+    if [[ -z "$cursor" ]]; then
+      break
+    fi
+  done
+  echo "$all_missing" | grep -v '^$'
+}
+
 sync_blobs_loop() {
   if [[ "$SKIP_BLOBS" == "true" ]]; then
     log "Skipping blob sync (--skip-blobs)"
     return 0
   fi
 
-  log "Syncing blobs from old PDS (using com.atproto.sync.listBlobs)"
-  local cids
-  cids=$(list_blobs_from_old)
-
-  if [[ -z "$cids" ]]; then
-    log "No blobs found on old PDS."
+  log "Discovering missing blobs on NEW (com.atproto.repo.listMissingBlobs)"
+  local missing
+  missing=$(list_missing_blobs_from_new)
+  if [[ -z "$missing" ]]; then
+    log "No missing blobs to upload."
     return 0
   fi
 
   local total_count
-  total_count=$(echo "$cids" | wc -l)
-  log "Found $total_count blobs on old PDS"
+  total_count=$(echo "$missing" | wc -l)
+  log "Missing $total_count blobs; fetching from OLD and uploading to NEW"
 
-  # Get list of blobs already on new PDS
-  log "Checking which blobs are already uploaded..."
-  local existing_blobs
-  existing_blobs=$(curl -s "$NEW/xrpc/com.atproto.sync.listBlobs?did=$DID&limit=10000" \
-    -H "authorization: Bearer $ACCESS" | jq -r '.cids[]? // empty' || echo "")
-
-  local existing_count=0
-  if [[ -n "$existing_blobs" ]]; then
-    existing_count=$(echo "$existing_blobs" | wc -l)
-  fi
-  log "Found $existing_count blobs already uploaded"
-
-  # Create a hash set of existing blob CIDs for fast lookup
-  declare -A existing_set
-  while read -r existing_cid; do
-    [[ -n "$existing_cid" ]] && existing_set["$existing_cid"]=1
-  done <<< "$existing_blobs"
-
-  local count=0
-  local skipped=0
+  local uploaded=0
+  local failed=0
+  local processed=0
   while read -r cid; do
     [[ -z "$cid" ]] && continue
+    processed=$((processed+1))
 
-    # Check if blob already exists using hash lookup
-    if [[ -n "${existing_set[$cid]:-}" ]]; then
-      skipped=$((skipped+1))
-      continue
-    fi
-
-    count=$((count+1))
-
-    # Use -L to follow redirects, and ensure we get the actual blob content
+    # Fetch from OLD (follow redirects)
     curl -sL -D "$WORKDIR/headers.txt" -o "$WORKDIR/blob.bin" \
       -H "authorization: Bearer $OLD_ACCESS" \
       -H "accept: */*" \
       "$OLD/xrpc/com.atproto.sync.getBlob?did=$DID&cid=$cid"
 
-    # Check if we got JSON error instead of blob (blob not found on old PDS)
+    # If JSON error, skip (blob may have expired/deleted upstream)
     if head -c 100 "$WORKDIR/blob.bin" | grep -q '{"error"'; then
-      # Blob doesn't exist on old PDS - this is normal for deleted/expired blobs
       continue
     fi
 
     local mime
-    # Get the LAST content-type header (after redirects)
     mime=$(awk -F': ' 'tolower($1) == "content-type" {ct=$2} END {print ct}' "$WORKDIR/headers.txt" | tr -d '\r')
     mime=${mime:-application/octet-stream}
-    log "Uploading blob $cid with MIME type: $mime (size: $(wc -c < "$WORKDIR/blob.bin") bytes)"
 
     local upload_result
     upload_result=$(curl -sS -X POST "$NEW/xrpc/com.atproto.repo.uploadBlob" \
@@ -415,15 +391,18 @@ sync_blobs_loop() {
       -H "content-type: $mime" \
       --data-binary @"$WORKDIR/blob.bin" 2>&1)
     if [[ $? -ne 0 ]] || echo "$upload_result" | jq -e '.error' >/dev/null 2>&1; then
+      failed=$((failed+1))
       log "WARN: Failed to upload blob $cid: $upload_result"
+    else
+      uploaded=$((uploaded+1))
     fi
 
-    if (( (count + skipped) % 100 == 0 )); then
-      log "Progress: $count uploaded, $skipped skipped, $((count + skipped))/$total_count processed"
+    if (( processed % 100 == 0 )); then
+      log "Progress: $uploaded uploaded, $failed failed, $processed/$total_count processed"
     fi
-  done <<< "$cids"
+  done <<< "$missing"
 
-  log "Blob sync complete: $count uploaded, $skipped already existed"
+  log "Blob sync complete: $uploaded uploaded, $failed failed, $total_count total missing"
 }
 
 status() {
@@ -480,6 +459,20 @@ request_and_submit_plc_operation() {
   # Save the recommended credentials
   local recommended
   recommended=$(cat "$body")
+
+  # Sanity: ensure recommended atproto key comes from our REPO_SIGNING_KEY (Ed25519 did:key)
+  local rec_atproto
+  rec_atproto=$(echo "$recommended" | jq -r '.verificationMethods.atproto // empty')
+  if [[ -z "$rec_atproto" ]]; then
+    err "Recommended credentials missing verificationMethods.atproto."
+    err "Ensure REPO_SIGNING_KEY is configured on $NEW."
+    return 1
+  fi
+  log "Using atproto verification method from NEW (derived from REPO_SIGNING_KEY): $rec_atproto"
+  # Optional: warn if it doesn't look like Ed25519 did:key (z6Mk…)
+  if ! echo "$rec_atproto" | grep -q '^did:key:z'; then
+    log "WARN: atproto did:key does not look like a did:key URI: $rec_atproto"
+  fi
 
   log "Step 3: Having old PDS sign the operation with token"
   read -r code body < <(http_json POST "$OLD/xrpc/com.atproto.identity.signPlcOperation" \
@@ -583,8 +576,6 @@ wait_for_plc_hosting() {
 main() {
   log "Starting migration: DID=$DID NEW=$NEW OLD=$OLD HANDLE=$HANDLE"
   preflight
-  # Ask the operator for the PDS service signing key (optional)
-  prompt_service_signing_key_hex
   get_access_token
   get_old_access_token
   export_repo

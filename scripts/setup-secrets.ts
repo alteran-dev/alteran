@@ -40,11 +40,6 @@ function randomB64(bytes = 32): string {
   return b64(buf);
 }
 
-function randomHex(bytes = 32): string {
-  const buf = new Uint8Array(bytes);
-  crypto.getRandomValues(buf);
-  return Buffer.from(buf).toString("hex");
-}
 
 async function generateRepoSigning(): Promise<{
   privateKeyB64: string;
@@ -81,7 +76,6 @@ async function main() {
   const accessSecret = randomB64(32);
   const refreshSecret = randomB64(32);
   const repo = await generateRepoSigning();
-  const serviceSigningKeyHex = randomHex(32);
 
   printHeader("Generated Secrets");
   console.log(`PDS_DID                 = ${did}`);
@@ -91,7 +85,6 @@ async function main() {
   console.log(`REFRESH_TOKEN_SECRET    = ${refreshSecret}`);
   console.log(`REPO_SIGNING_KEY        = <base64 pkcs8, hidden>`);
   console.log(`REPO_SIGNING_KEY_PUBLIC = ${repo.publicRawB64}`);
-  console.log(`PDS_SERVICE_SIGNING_KEY_HEX = ${serviceSigningKeyHex}`);
   console.log();
 
   printHeader(`Wrangler Commands (${env})`);
@@ -104,7 +97,6 @@ async function main() {
     `wrangler secret put REFRESH_TOKEN_SECRET${envArg}`,
     `wrangler secret put REPO_SIGNING_KEY${envArg}`,
     `wrangler secret put REPO_SIGNING_KEY_PUBLIC${envArg}`,
-    `wrangler secret put PDS_SERVICE_SIGNING_KEY_HEX${envArg}`,
   ];
   console.log(cmds.join("\n"));
   console.log();
@@ -116,7 +108,6 @@ async function main() {
   console.log("  REFRESH_TOKEN_SECRET:    " + refreshSecret);
   console.log("  REPO_SIGNING_KEY:        " + repo.privateKeyB64);
   console.log("  REPO_SIGNING_KEY_PUBLIC: " + repo.publicRawB64);
-  console.log("  PDS_SERVICE_SIGNING_KEY_HEX: " + serviceSigningKeyHex);
 
   if (writeDevVars) {
     const target = path.resolve(".dev.vars");
@@ -133,7 +124,6 @@ async function main() {
           `REFRESH_TOKEN_SECRET=${refreshSecret}`,
           `REPO_SIGNING_KEY=${repo.privateKeyB64}`,
           `REPO_SIGNING_KEY_PUBLIC=${repo.publicRawB64}`,
-          `PDS_SERVICE_SIGNING_KEY_HEX=${serviceSigningKeyHex}`,
           `PDS_CORS_ORIGIN=*`,
         ].join("\n") + "\n";
       writeFileSync(target, content, "utf8");

@@ -243,13 +243,25 @@ export class Sequencer {
     const cursorParam = url.searchParams.get('cursor');
     const cursor = cursorParam ? parseInt(cursorParam, 10) : 0;
 
+    // If the client requested a subprotocol, remember the first value so we can echo it.
+    // Some WebSocket clients will close immediately (1006) if the server does not
+    // negotiate a requested subprotocol.
+    const requestedProtoHeader = request.headers.get('Sec-WebSocket-Protocol') || request.headers.get('sec-websocket-protocol');
+    const requestedProtocol = requestedProtoHeader
+      ? requestedProtoHeader.split(',').map((s) => s.trim()).filter(Boolean)[0] || undefined
+      : undefined;
+
     // Validate cursor
     if (cursor > this.nextSeq - 1) {
-      // Future cursor error
-      const err = checkCursor(cursor, this.nextSeq - 1) ?? createErrorFrame('FutureCursor', 'Cursor is ahead of current sequence').toFramedBytes();
-      server.send(err);
+      // Future cursor error — send a standard atproto error frame (header+body CBOR, no length prefix)
+      const err = createErrorFrame('FutureCursor', 'Cursor is ahead of current sequence').toBytes();
+      try {
+        server.send(err);
+      } catch {}
       server.close(1008, 'FutureCursor');
-      return new Response(null, { status: 101, webSocket: client });
+      const headers = new Headers();
+      if (requestedProtocol) headers.set('Sec-WebSocket-Protocol', requestedProtocol);
+      return new Response(null, { status: 101, webSocket: client, headers });
     }
 
     // CRITICAL: Use Cloudflare's hibernatable WebSocket API
@@ -257,13 +269,29 @@ export class Sequencer {
     // Without this, the WebSocket closes immediately when the worker context ends
     this.state.acceptWebSocket(server as any, [id, cursor.toString()]);
 
+    // Light-touch observability for upgrade events
+    try {
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          type: 'ws_upgrade',
+          id,
+          path: url.pathname,
+          cursor,
+          protocol: requestedProtocol || null,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    } catch {}
+
     const clientObj: Client = { webSocket: server as unknown as WebSocket, id, cursor };
     this.clients.set(id, clientObj);
 
     // Send #info frame on connection
     const infoFrame = createInfoFrame('com.atproto.sync.subscribeRepos', 'Connected to PDS firehose');
     try {
-      server.send(infoFrame.toFramedBytes());
+      // Send pure CBOR header+body in a single WS message (no extra length prefix)
+      server.send(infoFrame.toBytes());
     } catch (error) {
       console.error('Failed to send info frame:', error);
     }
@@ -273,7 +301,11 @@ export class Sequencer {
       await this.replayFromCursor(server as unknown as WebSocket, cursor);
     }
 
-    return new Response(null, { status: 101, webSocket: client });
+    // Echo back the negotiated subprotocol if the client requested one.
+    // Cloudflare will include standard Upgrade headers; we only add Sec-WebSocket-Protocol.
+    const headers = new Headers();
+    if (requestedProtocol) headers.set('Sec-WebSocket-Protocol', requestedProtocol);
+    return new Response(null, { status: 101, webSocket: client, headers });
   }
 
   /**
@@ -287,7 +319,7 @@ export class Sequencer {
       for (const event of bufferedEvents) {
         try {
           const frame = await this.createCommitFrame(event);
-          ws.send(frame.toFramedBytes());
+          ws.send(frame.toBytes());
         } catch (error) {
           console.error('Failed to send buffered event:', error);
         }
@@ -316,7 +348,7 @@ export class Sequencer {
               ts: event.ts,
             };
             const frame = await this.createCommitFrame(commitEvent);
-            ws.send(frame.toFramedBytes());
+            ws.send(frame.toBytes());
           } catch (error) {
             console.error('Failed to send database event:', error);
           }
@@ -332,7 +364,7 @@ export class Sequencer {
    */
   private async broadcastCommit(event: CommitEvent): Promise<void> {
     const frame = await this.createCommitFrame(event);
-    const bytes = frame.toFramedBytes();
+    const bytes = frame.toBytes();
 
     const disconnected: string[] = [];
 
@@ -365,7 +397,7 @@ export class Sequencer {
       time: new Date(event.ts).toISOString(),
       handle: event.handle,
     });
-    const bytes = frame.toFramedBytes();
+    const bytes = frame.toBytes();
 
     const disconnected: string[] = [];
 
@@ -406,8 +438,8 @@ export class Sequencer {
       active: event.active,
       status: event.status,
     });
-    const bytesAccount = accountFrame.toFramedBytes();
-    const bytesSync = syncLike.toFramedBytes();
+    const bytesAccount = accountFrame.toBytes();
+    const bytesSync = syncLike.toBytes();
 
     const disconnected: string[] = [];
 
@@ -515,7 +547,7 @@ export class Sequencer {
       'FramesDropped',
       `${this.droppedFrameCount} frame(s) dropped due to backpressure`,
     );
-    const bytes = infoFrame.toFramedBytes();
+    const bytes = infoFrame.toBytes();
 
     for (const [id, client] of Array.from(this.clients.entries())) {
       try {

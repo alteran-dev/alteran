@@ -97,7 +97,17 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
     if (url.pathname === '/xrpc/com.atproto.sync.subscribeRepos') {
       const upgrade = request.headers.get('upgrade');
       if (upgrade !== 'websocket') {
-        return new Response('Expected websocket', { status: 426 }) as unknown as WorkersResponse;
+        try {
+          console.log(JSON.stringify({
+            level: 'warn',
+            type: 'ws_expected',
+            path: url.pathname,
+            method: request.method,
+            message: 'subscribeRepos requires WebSocket upgrade',
+            timestamp: new Date().toISOString(),
+          }));
+        } catch {}
+        return new Response('This endpoint requires a WebSocket (wss://) upgrade', { status: 426 }) as unknown as WorkersResponse;
       }
       if (!resolvedEnv.SEQUENCER) {
         return new Response('Sequencer not configured', { status: 503 }) as unknown as WorkersResponse;

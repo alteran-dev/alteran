@@ -14,9 +14,6 @@ set -euo pipefail
 #   NEW_RECOVERY_DID_KEY              # optional did:key:... to prepend to rotationKeys
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1" >&2; exit 1; }; }
-need_cmd goat
-need_cmd curl
-need_cmd jq
 
 default() { local v; v="${!1-}"; if [[ -z "$v" ]]; then printf -- "%s" "$2"; else printf -- "%s" "$v"; fi; }
 

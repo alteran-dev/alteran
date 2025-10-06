@@ -10,6 +10,7 @@
  */
 
 import { webcrypto } from 'crypto';
+import { base58btc } from 'multiformats/bases/base58';
 
 async function generateSigningKey() {
   // Generate Ed25519 keypair
@@ -33,6 +34,10 @@ async function generateSigningKey() {
   // 2) SPKI for external verification tools (informational)
   const publicKeySpki = await webcrypto.subtle.exportKey('spki', keyPair.publicKey);
   const publicKeySpkiBase64 = Buffer.from(publicKeySpki).toString('base64');
+  // 3) did:multikey for PLC (z… base58btc of 0xED 0x01 + raw32)
+  const prefixed = new Uint8Array(2 + publicKeyRaw.byteLength);
+  prefixed[0] = 0xed; prefixed[1] = 0x01; prefixed.set(new Uint8Array(publicKeyRaw), 2);
+  const didMultikey = base58btc.encode(prefixed);
 
   console.log('='.repeat(80));
   console.log('Ed25519 Signing Keypair Generated');
@@ -43,6 +48,9 @@ async function generateSigningKey() {
   console.log();
   console.log('Public Key (raw, base64) — use as REPO_SIGNING_KEY_PUBLIC:');
   console.log(publicKeyRawBase64);
+  console.log();
+  console.log('did:multikey (for PLC DID verificationMethod.atproto):');
+  console.log(didMultikey);
   console.log();
   console.log('Public Key (SPKI, base64) — informational:');
   console.log(publicKeySpkiBase64);
@@ -58,6 +66,10 @@ async function generateSigningKey() {
   console.log('To publish the public key in did.json (optional):');
   console.log('  wrangler secret put REPO_SIGNING_KEY_PUBLIC');
   console.log('  Then paste the raw public key (first value above)');
+  console.log();
+  console.log('PLC migration note:');
+  console.log('  The PLC operation will advertise verificationMethods.atproto = did:key:' + didMultikey);
+  console.log('  Ensure REPO_SIGNING_KEY (private) and REPO_SIGNING_KEY_PUBLIC (raw 32-byte base64) match this key.');
   console.log();
   console.log('Or add to .dev.vars for local development:');
   console.log(`  REPO_SIGNING_KEY="${privateKeyBase64}"`);
