@@ -266,6 +266,16 @@ export class Sequencer {
       console.error('Failed to send info frame:', error);
     }
 
+    // Keep the connection alive to avoid intermediary idle timeouts (e.g., CF edge)
+    // Send a lightweight #info heartbeat every ~25s. Most clients ignore unknown #info
+    // messages; this is safe and keeps the socket active.
+    const keepalive = setInterval(() => {
+      try {
+        const ka = createInfoFrame('keepalive', 'ping');
+        ws.send(ka.toFramedBytes());
+      } catch {}
+    }, 25_000);
+
     // Set up event handlers
     ws.addEventListener('message', (evt) => {
       try {
@@ -280,10 +290,12 @@ export class Sequencer {
 
     ws.addEventListener('close', () => {
       this.clients.delete(id);
+      clearInterval(keepalive);
     });
 
     ws.addEventListener('error', () => {
       this.clients.delete(id);
+      clearInterval(keepalive);
     });
 
     // Replay buffered events if cursor provided

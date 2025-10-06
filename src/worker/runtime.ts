@@ -79,8 +79,16 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
 
     // Fire-and-forget: let relays know this PDS exists and is reachable.
     // Throttled per isolate and safe to call frequently.
+    // Best-effort: notify relays, but avoid doing so on relay-initiated endpoints
+    // to prevent feedback loops (describeServer/subscribeRepos).
     try {
-      ctx.waitUntil(notifyRelaysIfNeeded(resolvedEnv as any, request.url));
+      const pathname = new URL(request.url).pathname;
+      const isRelayPath =
+        pathname === '/xrpc/com.atproto.server.describeServer' ||
+        pathname === '/xrpc/com.atproto.sync.subscribeRepos';
+      if (!isRelayPath) {
+        ctx.waitUntil(notifyRelaysIfNeeded(resolvedEnv as any, request.url));
+      }
     } catch (err) {
       // Never block on relay notification
     }
