@@ -46,17 +46,33 @@ export async function fetchProfileRecord(env: Env, did: string): Promise<Profile
   }
 
   // Fallback: pick the most recent profile record regardless of DID
-  const fallback = await env.DB.prepare(
-    'SELECT json FROM record WHERE uri LIKE ? ORDER BY rowid DESC LIMIT 1'
-  )
-    .bind(`%/${PROFILE_COLLECTION}/%`)
-    .first<{ json: string }>();
+  // Use range scan to avoid D1 LIKE complexity limits
+  // Profile URIs have format: at://<did>/app.bsky.actor.profile/self
+  const prefix = `at://`;
+  const suffix = `/${PROFILE_COLLECTION}/`;
+  const upperBound = `at://~`; // '~' sorts after all valid DIDs
 
-  if (fallback?.json) {
-    try {
-      return JSON.parse(fallback.json) as ProfileRecord;
-    } catch {
-      return null;
+  // Find any profile record - scan from "at://" to "at://~" and filter in app
+  const fallback = await env.DB.prepare(
+    'SELECT json FROM record WHERE uri >= ? AND uri < ? ORDER BY rowid DESC LIMIT 50'
+  )
+    .bind(prefix, upperBound)
+    .all<{ json: string }>();
+
+  // Filter for profile records in memory (D1 can't do complex patterns)
+  if (fallback?.results) {
+    for (const row of fallback.results) {
+      if (row.json && typeof row.json === 'string') {
+        try {
+          // Check if this is a profile record by URI pattern
+          const parsed = JSON.parse(row.json);
+          if (parsed.$type === 'app.bsky.actor.profile') {
+            return parsed as ProfileRecord;
+          }
+        } catch {
+          continue;
+        }
+      }
     }
   }
 

@@ -218,20 +218,17 @@ export class RepoManager {
    * Fallback: Get record directly from record table
    */
   private async getRecordFromTable(collection: string, rkey: string): Promise<unknown | null> {
-    const db = drizzle(this.env.DB);
     const did = await this.getDid();
     const uri = `at://${did}/${collection}/${rkey}`;
 
-    const row = await db
-      .select()
-      .from(record)
-      .where(eq(record.uri, uri))
-      .get();
+    const result = await this.env.DB.prepare(
+      `SELECT json FROM record WHERE uri = ?`
+    ).bind(uri).first();
 
-    if (!row) return null;
+    if (!result) return null;
 
     try {
-      return JSON.parse(row.json);
+      return JSON.parse(result.json as string);
     } catch {
       return null;
     }
@@ -269,24 +266,26 @@ export class RepoManager {
    * Fallback: List records directly from record table
    */
   private async listRecordsFromTable(collection: string, limit = 50, cursor?: string): Promise<{ key: string; cid: CID }[]> {
-    const db = drizzle(this.env.DB);
     const did = await this.getDid();
     const prefix = `at://${did}/${collection}/`;
-    const pattern = `${prefix}%`;
 
-    const rows = cursor
-      ? await db
-          .select()
-          .from(record)
-          .where(sql`${record.uri} LIKE ${pattern} AND ${record.uri} > ${prefix + cursor}`)
-          .limit(limit)
-          .all()
-      : await db
-          .select()
-          .from(record)
-          .where(like(record.uri, pattern))
-          .limit(limit)
-          .all();
+    // D1 has issues with LIKE patterns, so we use >= and < with range scan
+    // This works because URIs are ordered lexicographically
+    const rangeEnd = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+
+    let stmt;
+    if (cursor) {
+      stmt = this.env.DB.prepare(
+        `SELECT uri, cid FROM record WHERE uri >= ? AND uri < ? AND uri > ? ORDER BY uri LIMIT ?`
+      ).bind(prefix, rangeEnd, prefix + cursor, limit);
+    } else {
+      stmt = this.env.DB.prepare(
+        `SELECT uri, cid FROM record WHERE uri >= ? AND uri < ? ORDER BY uri LIMIT ?`
+      ).bind(prefix, rangeEnd, limit);
+    }
+
+    const result = await stmt.all();
+    const rows = result.results as Array<{ uri: string; cid: string }>;
 
     return rows.map(row => {
       const rkey = row.uri.replace(prefix, '');
