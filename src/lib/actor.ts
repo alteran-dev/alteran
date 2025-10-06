@@ -100,7 +100,21 @@ export function buildProfileViewBasic(actor: PrimaryActor) {
     pronouns: actor.pronouns,
     avatar: actor.avatar,
     createdAt,
-    associated: { $type: 'app.bsky.actor.defs#profileAssociated' },
+    associated: {
+      $type: 'app.bsky.actor.defs#profileAssociated',
+      lists: 0,
+      feedgens: 0,
+      starterPacks: 0,
+      labeler: false,
+      chat: {
+        $type: 'app.bsky.actor.defs#profileAssociatedChat',
+        allowIncoming: 'all',
+      },
+      activitySubscription: {
+        $type: 'app.bsky.actor.defs#profileAssociatedActivitySubscription',
+        allowSubscriptions: 'followers',
+      },
+    },
     labels,
   };
 }
@@ -129,5 +143,6 @@ export function buildProfileViewDetailed(actor: PrimaryActor, counts: {
     followersCount: counts.followers,
     followsCount: counts.follows,
     postsCount: counts.posts,
+    viewer: {},
   };
 }
