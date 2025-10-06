@@ -350,22 +350,34 @@ export interface ProxyAppViewOptions {
 }
 
 export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppViewOptions): Promise<Response> {
+  console.log('proxyAppView called:', { lxm, url: request.url });
+
   const config = getAppViewConfig(env);
   if (!config) {
+    console.log('proxyAppView: No appview config, using fallback');
     return fallback ? await fallback() : new Response('AppView not configured', { status: 501 });
   }
 
+  console.log('proxyAppView: AppView config found:', { url: config.url, did: config.did });
+
   const auth = await authenticateRequest(request, env);
-  if (!auth) return unauthorized();
+  if (!auth) {
+    console.log('proxyAppView: Authentication failed');
+    return unauthorized();
+  }
 
   if (!auth.claims.sub) {
+    console.log('proxyAppView: No subject in auth claims');
     return new Response(JSON.stringify({ error: 'InvalidToken' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
+  console.log('proxyAppView: Authenticated as', auth.claims.sub);
+
   if (PROTECTED_METHODS.has(lxm)) {
+    console.log('proxyAppView: Method is protected, cannot proxy');
     return new Response(
       JSON.stringify({ error: 'InvalidToken', message: 'method cannot be proxied' }),
       {
@@ -377,6 +389,7 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
 
   const scope = resolveAuthScope(auth.claims.scope);
   if (scope === TAKENDOWN_SCOPE) {
+    console.log('proxyAppView: Account is takendown');
     return new Response(JSON.stringify({ error: 'AccountTakendown' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' },
@@ -384,6 +397,7 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
   }
 
   if (!PRIVILEGED_SCOPES.has(scope) && PRIVILEGED_METHODS.has(lxm)) {
+    console.log('proxyAppView: Insufficient privileges for method');
     return new Response(JSON.stringify({ error: 'InvalidToken' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
@@ -393,6 +407,7 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
   let target: ProxyTarget = { did: config.did, url: config.url };
   const proxyHeader = request.headers.get('atproto-proxy');
   if (proxyHeader) {
+    console.log('proxyAppView: Resolving proxy header:', proxyHeader);
     try {
       target = await resolveProxyTarget(env, proxyHeader, config);
     } catch (error) {
@@ -414,6 +429,8 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
   upstreamUrl.search = originalUrl.search;
   upstreamUrl.hash = '';
 
+  console.log('proxyAppView: Proxying to', upstreamUrl.toString());
+
   const headers = new Headers();
   for (const header of FORWARDED_HEADERS) {
     const value = request.headers.get(header);
@@ -422,10 +439,13 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
 
   let serviceJwt: string;
   try {
+    console.log('proxyAppView: Creating service JWT for', { iss: auth.claims.sub, aud: target.did, lxm });
     serviceJwt = await createServiceJwt(env, auth.claims.sub, target.did, lxm);
+    console.log('proxyAppView: Service JWT created successfully');
   } catch (error) {
     console.error('AppView service token error:', error);
     if (fallback) {
+      console.log('proxyAppView: Using fallback due to JWT error');
       return fallback();
     }
     return new Response(JSON.stringify({ error: 'ServiceAuthUnavailable' }), {
@@ -438,6 +458,7 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
 
   const method = request.method.toUpperCase();
   if (method !== 'GET' && method !== 'HEAD' && method !== 'POST') {
+    console.log('proxyAppView: Method not allowed:', method);
     return new Response(JSON.stringify({ error: 'MethodNotAllowed' }), {
       status: 405,
       headers: {
@@ -469,7 +490,9 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
       (init as any).duplex = 'half';
     }
 
+    console.log('proxyAppView: Fetching upstream');
     const upstream = await fetch(upstreamUrl.toString(), init);
+    console.log('proxyAppView: Upstream response:', { status: upstream.status, statusText: upstream.statusText });
 
     const responseHeaders = new Headers(upstream.headers);
     return new Response(upstream.body, {
@@ -480,6 +503,7 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
   } catch (error) {
     console.error('AppView proxy error:', error);
     if (fallback) {
+      console.log('proxyAppView: Using fallback due to upstream error');
       return fallback();
     }
     return new Response(JSON.stringify({ error: 'UpstreamUnavailable' }), {
