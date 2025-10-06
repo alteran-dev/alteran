@@ -40,6 +40,28 @@ const CORE_ROUTES = [
   { pattern: '/xrpc/com.atproto.sync.getRepo.range', entrypoint: './src/pages/xrpc/com.atproto.sync.getRepo.range.ts' },
   { pattern: '/xrpc/com.atproto.sync.listBlobs', entrypoint: './src/pages/xrpc/com.atproto.sync.listBlobs.ts' },
   { pattern: '/xrpc/com.atproto.sync.listRepos', entrypoint: './src/pages/xrpc/com.atproto.sync.listRepos.ts' },
+  // Additional atproto endpoints
+  { pattern: '/xrpc/com.atproto.identity.signPlcOperation', entrypoint: './src/pages/xrpc/com.atproto.identity.signPlcOperation.ts' },
+  { pattern: '/xrpc/com.atproto.server.getServiceAuth', entrypoint: './src/pages/xrpc/com.atproto.server.getServiceAuth.ts' },
+  // AppView proxy endpoints (bsky)
+  { pattern: '/xrpc/app.bsky.actor.getProfile', entrypoint: './src/pages/xrpc/app.bsky.actor.getProfile.ts' },
+  { pattern: '/xrpc/app.bsky.actor.getProfiles', entrypoint: './src/pages/xrpc/app.bsky.actor.getProfiles.ts' },
+  { pattern: '/xrpc/app.bsky.actor.getPreferences', entrypoint: './src/pages/xrpc/app.bsky.actor.getPreferences.ts' },
+  { pattern: '/xrpc/app.bsky.actor.putPreferences', entrypoint: './src/pages/xrpc/app.bsky.actor.putPreferences.ts' },
+  { pattern: '/xrpc/app.bsky.feed.getAuthorFeed', entrypoint: './src/pages/xrpc/app.bsky.feed.getAuthorFeed.ts' },
+  { pattern: '/xrpc/app.bsky.feed.getPostThread', entrypoint: './src/pages/xrpc/app.bsky.feed.getPostThread.ts' },
+  { pattern: '/xrpc/app.bsky.feed.getPosts', entrypoint: './src/pages/xrpc/app.bsky.feed.getPosts.ts' },
+  { pattern: '/xrpc/app.bsky.feed.getTimeline', entrypoint: './src/pages/xrpc/app.bsky.feed.getTimeline.ts' },
+  { pattern: '/xrpc/app.bsky.graph.getFollowers', entrypoint: './src/pages/xrpc/app.bsky.graph.getFollowers.ts' },
+  { pattern: '/xrpc/app.bsky.graph.getFollows', entrypoint: './src/pages/xrpc/app.bsky.graph.getFollows.ts' },
+  { pattern: '/xrpc/app.bsky.labeler.getServices', entrypoint: './src/pages/xrpc/app.bsky.labeler.getServices.ts' },
+  { pattern: '/xrpc/app.bsky.notification.getUnreadCount', entrypoint: './src/pages/xrpc/app.bsky.notification.getUnreadCount.ts' },
+  { pattern: '/xrpc/app.bsky.notification.listNotifications', entrypoint: './src/pages/xrpc/app.bsky.notification.listNotifications.ts' },
+  { pattern: '/xrpc/app.bsky.unspecced.getAgeAssuranceState', entrypoint: './src/pages/xrpc/app.bsky.unspecced.getAgeAssuranceState.ts' },
+  { pattern: '/xrpc/app.bsky.unspecced.getConfig', entrypoint: './src/pages/xrpc/app.bsky.unspecced.getConfig.ts' },
+  // Chat endpoints (proxied)
+  { pattern: '/xrpc/chat.bsky.convo.getLog', entrypoint: './src/pages/xrpc/chat.bsky.convo.getLog.ts' },
+  { pattern: '/xrpc/chat.bsky.convo.listConvos', entrypoint: './src/pages/xrpc/chat.bsky.convo.listConvos.ts' },
 ];
 
 const ROOT_ROUTE = {
