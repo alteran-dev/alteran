@@ -28,7 +28,15 @@ export async function POST({ locals, request }: APIContext) {
 
   const repo = new RepoManager(env);
   const commit = await repo.createRecord(collection, record, rkey);
-  await notifySequencer(env, { type: 'commit', did: env.PDS_DID ?? 'did:example:single-user', commitCid: commit.commitCid, rev: commit.rev, ops: commit.ops });
+  await notifySequencer(env, { 
+    did: env.PDS_DID ?? 'did:example:single-user', 
+    commitCid: commit.commitCid, 
+    rev: commit.rev, 
+    data: commit.commitData,
+    sig: commit.sig,
+    ops: commit.ops,
+    blocks: commit.blocks
+  });
 
   return new Response(JSON.stringify(commit), {
     headers: { 'Content-Type': 'application/json' },

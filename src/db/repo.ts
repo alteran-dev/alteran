@@ -6,6 +6,7 @@ import { RepoManager } from '../services/repo-manager';
 import { createCommit, signCommit, commitCid, generateTid, serializeCommit } from '../lib/commit';
 import { CID } from 'multiformats/cid';
 import { resolveSecret } from '../lib/secrets';
+import { encodeBlocksForCommit } from '../services/car';
 
 export async function getRoot(env: Env) {
   const db = drizzle(env.DB);
@@ -21,6 +22,9 @@ export async function bumpRoot(env: Env, prevMstRoot?: CID): Promise<{
   rev: string;
   ops: import('../lib/firehose/frames').RepoOp[];
   mstRoot: CID;
+  commitData: string;
+  sig: string;
+  blocks: string; // base64-encoded CAR
 }> {
   const db = drizzle(env.DB);
   const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
@@ -89,7 +93,14 @@ export async function bumpRoot(env: Env, prevMstRoot?: CID): Promise<{
   // Append to commit log
   await appendCommit(env, cidString, rev, commitData, sigBase64);
 
-  return { commitCid: cidString, rev, ops, mstRoot: mstRootCid };
+  // Encode blocks as CAR for firehose
+  const blocksBytes = await encodeBlocksForCommit(env, cid, mstRootCid, ops);
+  // Encode to base64 (workers-safe)
+  let blocksBase64 = '';
+  for (const b of blocksBytes) blocksBase64 += String.fromCharCode(b);
+  blocksBase64 = btoa(blocksBase64);
+
+  return { commitCid: cidString, rev, ops, mstRoot: mstRootCid, commitData, sig: sigBase64, blocks: blocksBase64 };
 }
 
 export async function appendCommit(env: Env, cid: string, rev: string, data: string, sig: string) {

@@ -98,6 +98,9 @@ export class RepoManager {
     commitCid: string;
     rev: string;
     ops: RepoOp[];
+    commitData: string;
+    sig: string;
+    blocks: string;
   }> {
     const key = rkey ?? generateTid();
     const { mst, recordCid, prevMstRoot } = await this.addRecord(collection, key, record);
@@ -107,9 +110,9 @@ export class RepoManager {
     await dalPutRecord(this.env, { uri, did: this.did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
 
     // Update repo root with signed commit and extract ops
-    const { commitCid, rev, ops } = await bumpRoot(this.env, prevMstRoot ?? undefined);
+    const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);
 
-    return { uri, cid: recordCid.toString(), commitCid, rev, ops };
+    return { uri, cid: recordCid.toString(), commitCid, rev, ops, commitData, sig, blocks };
   }
 
   /**
@@ -147,12 +150,15 @@ export class RepoManager {
     commitCid: string;
     rev: string;
     ops: RepoOp[];
+    commitData: string;
+    sig: string;
+    blocks: string;
   }> {
     const { mst, recordCid, prevMstRoot } = await this.updateRecord(collection, rkey, record);
     const uri = `at://${this.did}/${collection}/${rkey}`;
     await dalPutRecord(this.env, { uri, did: this.did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
-    const { commitCid, rev, ops } = await bumpRoot(this.env, prevMstRoot ?? undefined);
-    return { uri, cid: recordCid.toString(), commitCid, rev, ops };
+    const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);
+    return { uri, cid: recordCid.toString(), commitCid, rev, ops, commitData, sig, blocks };
   }
 
   /**
@@ -163,6 +169,9 @@ export class RepoManager {
     commitCid: string;
     rev: string;
     ops: RepoOp[];
+    commitData: string;
+    sig: string;
+    blocks: string;
   }> {
     const key = `${collection}/${rkey}`;
 
@@ -180,8 +189,8 @@ export class RepoManager {
     const uri = `at://${this.did}/${collection}/${rkey}`;
     await dalDeleteRecord(this.env, uri);
 
-    const { commitCid, rev, ops } = await bumpRoot(this.env, prevMstRoot ?? undefined);
-    return { uri, commitCid, rev, ops };
+    const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);
+    return { uri, commitCid, rev, ops, commitData, sig, blocks };
   }
 
   /**
