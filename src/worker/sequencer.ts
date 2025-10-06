@@ -238,9 +238,6 @@ export class Sequencer {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     const id = crypto.randomUUID();
-    const ws = server as unknown as WebSocket;
-
-    ws.accept();
 
     // Parse cursor parameter
     const cursorParam = url.searchParams.get('cursor');
@@ -250,57 +247,30 @@ export class Sequencer {
     if (cursor > this.nextSeq - 1) {
       // Future cursor error
       const err = checkCursor(cursor, this.nextSeq - 1) ?? createErrorFrame('FutureCursor', 'Cursor is ahead of current sequence').toFramedBytes();
-      ws.send(err);
-      ws.close(1008, 'FutureCursor');
+      server.send(err);
+      server.close(1008, 'FutureCursor');
       return new Response(null, { status: 101, webSocket: client });
     }
 
-    const clientObj: Client = { webSocket: ws, id, cursor };
+    // CRITICAL: Use Cloudflare's hibernatable WebSocket API
+    // This keeps the connection alive even after the response is returned
+    // Without this, the WebSocket closes immediately when the worker context ends
+    this.state.acceptWebSocket(server as any, [id, cursor.toString()]);
+
+    const clientObj: Client = { webSocket: server as unknown as WebSocket, id, cursor };
     this.clients.set(id, clientObj);
 
     // Send #info frame on connection
     const infoFrame = createInfoFrame('com.atproto.sync.subscribeRepos', 'Connected to PDS firehose');
     try {
-      ws.send(infoFrame.toFramedBytes());
+      server.send(infoFrame.toFramedBytes());
     } catch (error) {
       console.error('Failed to send info frame:', error);
     }
 
-    // Keep the connection alive to avoid intermediary idle timeouts (e.g., CF edge)
-    // Send a lightweight #info heartbeat every ~25s. Most clients ignore unknown #info
-    // messages; this is safe and keeps the socket active.
-    const keepalive = setInterval(() => {
-      try {
-        const ka = createInfoFrame('keepalive', 'ping');
-        ws.send(ka.toFramedBytes());
-      } catch {}
-    }, 25_000);
-
-    // Set up event handlers
-    ws.addEventListener('message', (evt) => {
-      try {
-        const data = typeof evt.data === 'string' ? evt.data : '';
-        if (data === 'ping') {
-          ws.send('pong');
-        }
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-      }
-    });
-
-    ws.addEventListener('close', () => {
-      this.clients.delete(id);
-      clearInterval(keepalive);
-    });
-
-    ws.addEventListener('error', () => {
-      this.clients.delete(id);
-      clearInterval(keepalive);
-    });
-
     // Replay buffered events if cursor provided
     if (cursor > 0) {
-      await this.replayFromCursor(ws, cursor);
+      await this.replayFromCursor(server as unknown as WebSocket, cursor);
     }
 
     return new Response(null, { status: 101, webSocket: client });
@@ -571,5 +541,53 @@ export class Sequencer {
       nextSeq: this.nextSeq,
       droppedFrames: this.droppedFrameCount,
     };
+  }
+
+  /**
+   * WebSocket hibernation handler: called when a message is received
+   * This is required for Cloudflare's hibernatable WebSocket API
+   */
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    // Find client by WebSocket instance
+    const client = Array.from(this.clients.values()).find((c) => c.webSocket === ws);
+    if (!client) {
+      console.warn('Received message from unknown WebSocket');
+      return;
+    }
+
+    try {
+      const data = typeof message === 'string' ? message : new TextDecoder().decode(message);
+      if (data === 'ping') {
+        ws.send('pong');
+      }
+    } catch (error) {
+      console.error('WebSocket message error:', error);
+    }
+  }
+
+  /**
+   * WebSocket hibernation handler: called when connection closes
+   * This is required for Cloudflare's hibernatable WebSocket API
+   */
+  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+    // Find and remove client
+    const entry = Array.from(this.clients.entries()).find(([_, c]) => c.webSocket === ws);
+    if (entry) {
+      this.clients.delete(entry[0]);
+      console.log(`Client ${entry[0]} disconnected: code=${code} reason="${reason}" clean=${wasClean}`);
+    }
+  }
+
+  /**
+   * WebSocket hibernation handler: called when an error occurs
+   * This is required for Cloudflare's hibernatable WebSocket API
+   */
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    // Find and remove client
+    const entry = Array.from(this.clients.entries()).find(([_, c]) => c.webSocket === ws);
+    if (entry) {
+      this.clients.delete(entry[0]);
+      console.error(`Client ${entry[0]} error:`, error);
+    }
   }
 }
