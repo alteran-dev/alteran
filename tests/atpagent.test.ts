@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from 'bun:test';
 import { createApp } from '../src/app';
 import { makeEnv, ctx } from './helpers/env';
-import { Hono } from 'hono';
 import { AtpAgent } from '@atproto/api';
+import { ensureChatTables } from '../src/lib/chat';
 
 const app = createApp();
 
@@ -88,5 +88,132 @@ describe('AtpAgent integration', () => {
     expect(commits2.length).toBeGreaterThan(0);
     // ensure seqs are strictly greater than cursor
     expect(Math.min(...commits2.map((c) => c.seq))).toBeGreaterThan(cursor);
+  });
+
+  it('serves app.bsky actor/feed/notification endpoints', async () => {
+    const agent = new AtpAgent({ service: 'http://localhost', fetch: fetchImpl as any });
+    await agent.login({ identifier: 'user', password: 'pwd' });
+    const did = env.PDS_DID!;
+
+    // ensure data exists in repo
+    const post = await agent.com.atproto.repo.createRecord({
+      repo: did,
+      collection: 'app.bsky.feed.post',
+      record: { text: 'timeline hello' },
+    });
+    expect(post.success).toBe(true);
+
+    const labelerRecord = await agent.com.atproto.repo.putRecord({
+      repo: did,
+      collection: 'app.bsky.labeler.service',
+      rkey: 'self',
+      record: {
+        $type: 'app.bsky.labeler.service',
+        createdAt: new Date().toISOString(),
+        policies: {
+          labelValues: ['!warn'],
+        },
+      },
+    } as any);
+    expect(labelerRecord.success).toBe(true);
+
+    const profile = await agent.app.bsky.actor.getProfile({ actor: did });
+    expect(profile.success).toBe(true);
+    expect(profile.data.did).toBe(did);
+
+    const profiles = await agent.app.bsky.actor.getProfiles({ actors: [did] });
+    expect(profiles.success).toBe(true);
+    expect(profiles.data.profiles.length).toBeGreaterThan(0);
+
+    const prefsBefore = await agent.app.bsky.actor.getPreferences();
+    expect(prefsBefore.success).toBe(true);
+
+    const savePrefs = await agent.app.bsky.actor.putPreferences({
+      preferences: [
+        {
+          $type: 'app.bsky.actor.defs#savedFeedsPref',
+          saved: [],
+          pinned: [],
+        },
+      ],
+    } as any);
+    expect(savePrefs.success).toBe(true);
+
+    const timeline = await agent.app.bsky.feed.getTimeline();
+    expect(timeline.success).toBe(true);
+
+    const authorFeed = await agent.app.bsky.feed.getAuthorFeed({ actor: did });
+    expect(authorFeed.success).toBe(true);
+
+    const posts = await agent.app.bsky.feed.getPosts({ uris: [post.data.uri] });
+    expect(posts.success).toBe(true);
+    expect(posts.data.posts[0]?.uri).toBe(post.data.uri);
+
+    const thread = await agent.app.bsky.feed.getPostThread({ uri: post.data.uri });
+    expect(thread.success).toBe(true);
+
+    const followers = await agent.app.bsky.graph.getFollowers({ actor: did });
+    expect(followers.success).toBe(true);
+
+    const follows = await agent.app.bsky.graph.getFollows({ actor: did });
+    expect(follows.success).toBe(true);
+
+    const notifications = await agent.app.bsky.notification.listNotifications();
+    expect(notifications.success).toBe(true);
+
+    const unread = await agent.app.bsky.notification.getUnreadCount();
+    expect(unread.success).toBe(true);
+    expect(unread.data.count).toBe(0);
+
+    const config = await agent.app.bsky.unspecced.getConfig();
+    expect(config.success).toBe(true);
+
+    const aaState = await agent.app.bsky.unspecced.getAgeAssuranceState();
+    expect(aaState.success).toBe(true);
+
+    const labelerViews = await agent.app.bsky.labeler.getServices({ dids: [did], detailed: true });
+    expect(labelerViews.success).toBe(true);
+    expect(labelerViews.data.views.length).toBeGreaterThan(0);
+
+    await ensureChatTables(env as any);
+    await env.DB.exec('DELETE FROM chat_convo_member; DELETE FROM chat_convo;');
+
+    const now = Date.now();
+    const lastMessage = {
+      id: 'msg1',
+      rev: '0',
+      text: 'Hi there',
+      sender: { did },
+      sentAt: new Date(now).toISOString(),
+      reactions: [],
+      facets: [],
+    };
+
+    await env.DB.prepare(
+      'INSERT INTO chat_convo (id, rev, status, muted, unread_count, last_message_json, last_reaction_json, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    )
+      .bind('convo-test', '0', 'accepted', 0, 1, JSON.stringify(lastMessage), null, now, now)
+      .run();
+
+    await env.DB.prepare(
+      'INSERT OR REPLACE INTO chat_convo_member (convo_id, did, handle, display_name, avatar, position) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+      .bind('convo-test', did, env.PDS_HANDLE ?? 'user.example.com', 'Owner', null, 0)
+      .run();
+
+    await env.DB.prepare(
+      'INSERT OR REPLACE INTO chat_convo_member (convo_id, did, handle, display_name, avatar, position) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+      .bind('convo-test', 'did:example:friend', 'friend.test', 'Friend', null, 1)
+      .run();
+
+    const convos = await agent.chat.bsky.convo.listConvos({ limit: 20 });
+    expect(convos.success).toBe(true);
+    expect(convos.data.convos.length).toBeGreaterThan(0);
+
+    const convoLog = await agent.chat.bsky.convo.getLog({});
+    expect(convoLog.success).toBe(true);
+    expect(Array.isArray(convoLog.data.logs)).toBe(true);
+    expect(convoLog.data.logs.length).toBeGreaterThan(0);
   });
 });

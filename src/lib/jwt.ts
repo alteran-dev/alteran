@@ -1,5 +1,7 @@
 import type { Env } from '../env';
 import { getRuntimeString } from './secrets';
+import { base58btc } from 'multiformats/bases/base58';
+import { issueSessionTokens, verifyAccessToken, verifyRefreshToken } from './session-tokens';
 
 export interface JwtClaims {
   sub: string; // DID
@@ -12,47 +14,50 @@ export interface JwtClaims {
 
 // JWT
 export async function signJwt(env: Env, claims: JwtClaims, kind: 'access' | 'refresh'): Promise<string> {
-  const iat = Math.floor(Date.now() / 1000);
-  const ttlAccess = Number((env.PDS_ACCESS_TTL_SEC as string | undefined) ?? 3600);
-  const ttlRefresh = Number((env.PDS_REFRESH_TTL_SEC as string | undefined) ?? 30 * 24 * 3600);
-  const exp = iat + (kind === 'access' ? ttlAccess : ttlRefresh);
-
-  // Build proper JWT claims
-  const payload: Record<string, unknown> = {
-    iss: env.PDS_HOSTNAME || 'alteran',
-    sub: claims.sub,
-    aud: claims.aud || env.PDS_HOSTNAME || 'alteran',
-    iat,
-    exp,
-    t: kind,
-  };
-
-  // Add optional claims
-  if (claims.handle) payload.handle = claims.handle;
-  if (claims.scope) payload.scope = claims.scope;
-  if (claims.jti) payload.jti = claims.jti;
-
-  const secret = await getRuntimeString(
-    env,
-    kind === 'access' ? 'ACCESS_TOKEN_SECRET' : 'REFRESH_TOKEN_SECRET',
-    kind === 'access' ? 'dev-access' : 'dev-refresh'
-  );
-  if (!secret) {
-    throw new Error(`Missing ${kind === 'access' ? 'ACCESS_TOKEN_SECRET' : 'REFRESH_TOKEN_SECRET'}`);
+  if (!claims.sub) {
+    throw new Error('Cannot sign JWT without subject');
   }
-  const algorithm = (env.JWT_ALGORITHM as string | undefined) ?? 'HS256';
-
-  if (algorithm === 'EdDSA') {
-    return await eddsaJwtSign(payload, env);
-  }
-
-  return await hmacJwtSign(payload, secret);
+  const { accessJwt, refreshJwt } = await issueSessionTokens(env, claims.sub, {
+    jti: claims.jti,
+  });
+  return kind === 'access' ? accessJwt : refreshJwt;
 }
 
-export async function verifyJwt(env: Env, token: string): Promise<{ valid: boolean; payload: any } | null> {
+export async function verifyJwt(env: Env, token: string): Promise<{ valid: boolean; payload: JwtClaims } | null> {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const header = JSON.parse(atob(parts[0].replace(/-/g, '+').replace(/_/g, '/')));
+
+  if (header.typ === 'at+jwt') {
+    const payload = await verifyAccessToken(env, token).catch(() => null);
+    if (!payload) return null;
+    if (!payload.sub) return null;
+    const claims: JwtClaims = {
+      sub: String(payload.sub),
+      aud: payload.aud as string | undefined,
+      scope: payload.scope as string | undefined,
+      jti: payload.jti as string | undefined,
+      t: 'access',
+    };
+    if (payload.handle) {
+      claims.handle = String(payload.handle);
+    }
+    return { valid: true, payload: claims };
+  }
+
+  if (header.typ === 'refresh+jwt') {
+    const verified = await verifyRefreshToken(env, token).catch(() => null);
+    if (!verified) return null;
+    if (!verified.payload.sub) return null;
+    const payload: JwtClaims = {
+      sub: String(verified.payload.sub),
+      aud: verified.payload.aud as string | undefined,
+      scope: verified.payload.scope as string | undefined,
+      jti: verified.payload.jti as string | undefined,
+      t: 'refresh',
+    };
+    return { valid: true, payload };
+  }
 
   const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
 
@@ -73,7 +78,7 @@ export async function verifyJwt(env: Env, token: string): Promise<{ valid: boole
 
   const now = Math.floor(Date.now() / 1000);
   if (!ok || (payload.exp && now > payload.exp)) return null;
-  return { valid: true, payload };
+  return { valid: true, payload: payload as JwtClaims };
 }
 
 async function hmacJwtSign(payload: any, secret: string): Promise<string> {
@@ -134,14 +139,11 @@ async function eddsaJwtVerify(data: string, sigB64: string, env: Env): Promise<b
   }
 
   try {
-    const keyBytes = b64urlDecode(keyData);
-    const key = await crypto.subtle.importKey(
-      'raw',
-      keyBytes,
-      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-      false,
-      ['verify']
-    );
+    const key = await importEd25519PublicKey(keyData);
+    if (!key) {
+      console.error('EdDSA JWT verification failed: unsupported public key format for Ed25519');
+      return false;
+    }
 
     const ok = await crypto.subtle.verify('Ed25519', key, b64urlDecode(sigB64), enc.encode(data));
     return !!ok;
@@ -166,4 +168,93 @@ function b64urlDecode(s: string): Uint8Array {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+async function importEd25519PublicKey(value: string): Promise<CryptoKey | null> {
+  const attempts = buildPublicKeyCandidates(value);
+  for (const attempt of attempts) {
+    try {
+      return await crypto.subtle.importKey(
+        attempt.format,
+        attempt.data,
+        { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
+        false,
+        ['verify']
+      );
+    } catch (error) {
+      console.warn('EdDSA JWT verification warning: failed to import key candidate', error);
+    }
+  }
+  return null;
+}
+
+type KeyImportAttempt = { format: KeyFormat; data: Uint8Array };
+type KeyFormat = 'raw' | 'spki';
+
+function buildPublicKeyCandidates(value: string): KeyImportAttempt[] {
+  const trimmed = value.trim();
+  const attempts: KeyImportAttempt[] = [];
+
+  const didKeyCandidate = decodeDidKey(trimmed);
+  if (didKeyCandidate) {
+    attempts.push({ format: 'raw', data: didKeyCandidate });
+  }
+
+  const pemMatch = trimmed.match(/-----BEGIN PUBLIC KEY-----([\s\S]+?)-----END PUBLIC KEY-----/);
+  if (pemMatch) {
+    const derBytes = decodeBase64(pemMatch[1].replace(/\s+/g, ''));
+    if (derBytes) {
+      attempts.push({ format: 'spki', data: derBytes });
+    }
+  }
+
+  const compact = trimmed.replace(/\s+/g, '');
+  const decoded = decodeBase64(compact);
+  if (decoded) {
+    if (decoded.length === 32) {
+      attempts.push({ format: 'raw', data: decoded });
+    } else {
+      attempts.push({ format: 'spki', data: decoded });
+    }
+  }
+
+  return attempts;
+}
+
+function decodeBase64(value: string): Uint8Array | null {
+  const cleaned = value.replace(/\s+/g, '');
+  if (!cleaned) return null;
+  try {
+    return b64urlDecode(cleaned);
+  } catch {
+    const normalized = cleaned.replace(/-/g, '+').replace(/_/g, '/');
+    const padLength = normalized.length % 4;
+    const padded =
+      padLength === 0
+        ? normalized
+        : padLength === 2
+          ? normalized + '=='
+          : padLength === 3
+            ? normalized + '='
+            : normalized + '===';
+    const bin = atob(padded);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+}
+
+function decodeDidKey(didKey: string): Uint8Array | null {
+  if (!didKey.startsWith('did:key:')) return null;
+  try {
+    const multibase = didKey.slice('did:key:'.length);
+    const bytes = base58btc.decode(multibase);
+    if (bytes.length === 34 && bytes[0] === 0xed && bytes[1] === 0x01) {
+      return bytes.slice(2);
+    }
+    console.warn('EdDSA JWT verification warning: unsupported did:key multicodec prefix');
+  } catch (error) {
+    console.warn('EdDSA JWT verification warning: failed to parse did:key', error);
+  }
+  return null;
 }

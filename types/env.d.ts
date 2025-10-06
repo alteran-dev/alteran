@@ -29,6 +29,7 @@ declare global {
     PDS_MAX_BLOB_SIZE?: string;
     ACCESS_TOKEN_SECRET?: string | SecretsStoreSecret;
     REFRESH_TOKEN_SECRET?: string | SecretsStoreSecret;
+    SESSION_JWT_SECRET?: string | SecretsStoreSecret;
     PDS_ACCESS_TTL_SEC?: string;
     PDS_REFRESH_TTL_SEC?: string;
     JWT_ALGORITHM?: string;
@@ -40,6 +41,10 @@ declare global {
     PDS_CORS_ORIGIN?: string;
     PDS_SEQ_WINDOW?: string;
     ENVIRONMENT?: string;
+    PDS_BSKY_APP_VIEW_URL?: string;
+    PDS_BSKY_APP_VIEW_DID?: string;
+    PDS_BSKY_APP_VIEW_CDN_URL_PATTERN?: string;
+    PDS_SERVICE_SIGNING_KEY_HEX?: string | SecretsStoreSecret;
   }
 
   namespace App {

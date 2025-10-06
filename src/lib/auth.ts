@@ -1,7 +1,13 @@
 import type { APIContext } from 'astro';
-import { verifyJwt } from './jwt';
+import type { Env } from '../env';
+import { verifyJwt, type JwtClaims } from './jwt';
 
-export async function isAuthorized(request: Request, env: any): Promise<boolean> {
+export interface AuthContext {
+  token: string;
+  claims: JwtClaims;
+}
+
+export async function isAuthorized(request: Request, env: Env): Promise<boolean> {
   const auth = request.headers.get('authorization');
   if (!auth || !auth.startsWith('Bearer ')) return false;
   const token = auth.slice(7);
@@ -20,4 +26,18 @@ export async function isAuthorized(request: Request, env: any): Promise<boolean>
 
 export function unauthorized() {
   return new Response(JSON.stringify({ error: 'AuthRequired' }), { status: 401 });
+}
+
+export async function authenticateRequest(request: Request, env: Env): Promise<AuthContext | null> {
+  const auth = request.headers.get('authorization');
+  if (!auth || !auth.startsWith('Bearer ')) return null;
+  const token = auth.slice(7);
+  const ver = await verifyJwt(env, token).catch((err) => {
+    console.error('JWT verification error:', err);
+    return null;
+  });
+  if (!ver || !ver.valid) return null;
+  const claims = ver.payload as JwtClaims;
+  if (claims.t !== 'access') return null;
+  return { token, claims };
 }

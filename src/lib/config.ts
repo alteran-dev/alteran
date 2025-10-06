@@ -7,9 +7,6 @@ import { logger } from './logger';
 const REQUIRED_SECRETS = [
   'PDS_DID',
   'PDS_HANDLE',
-  'USER_PASSWORD',
-  'ACCESS_TOKEN_SECRET',
-  'REFRESH_TOKEN_SECRET',
 ] as const;
 
 /**
@@ -23,6 +20,9 @@ const OPTIONAL_VARS = {
   PDS_CORS_ORIGIN: '*',
   PDS_SEQ_WINDOW: '512',
   ENVIRONMENT: 'development',
+  PDS_BSKY_APP_VIEW_URL: 'https://public.api.bsky.app',
+  PDS_BSKY_APP_VIEW_DID: 'did:web:api.bsky.app',
+  PDS_BSKY_APP_VIEW_CDN_URL_PATTERN: '',
 } as const;
 
 /**
@@ -108,6 +108,10 @@ export function validateConfig(env: Env): ConfigValidationResult {
     warnings.push('REPO_SIGNING_KEY is not set - repository commits will not be signed');
   }
 
+  if (!env.PDS_SERVICE_SIGNING_KEY_HEX) {
+    warnings.push('PDS_SERVICE_SIGNING_KEY_HEX is not set - service-to-service authentication will be disabled');
+  }
+
   const valid = missing.length === 0;
 
   return {
@@ -184,9 +188,6 @@ export function getConfig(env: Env) {
     // Required
     did: env.PDS_DID!,
     handle: env.PDS_HANDLE!,
-    userPassword: env.USER_PASSWORD!,
-    accessTokenSecret: env.ACCESS_TOKEN_SECRET!,
-    refreshTokenSecret: env.REFRESH_TOKEN_SECRET!,
 
     // Optional with defaults
     allowedMime: result.config.optional.PDS_ALLOWED_MIME.split(','),
@@ -196,12 +197,19 @@ export function getConfig(env: Env) {
     corsOrigin: result.config.optional.PDS_CORS_ORIGIN,
     seqWindow: parseInt(result.config.optional.PDS_SEQ_WINDOW),
     environment: result.config.optional.ENVIRONMENT,
+    appView: {
+      url: result.config.optional.PDS_BSKY_APP_VIEW_URL,
+      did: result.config.optional.PDS_BSKY_APP_VIEW_DID,
+      cdnUrlPattern:
+        result.config.optional.PDS_BSKY_APP_VIEW_CDN_URL_PATTERN?.trim() || undefined,
+    },
 
     // Optional
     repoSigningKey: env.REPO_SIGNING_KEY,
     hostname: env.PDS_HOSTNAME,
     accessTtlSec: env.PDS_ACCESS_TTL_SEC ? parseInt(env.PDS_ACCESS_TTL_SEC) : 3600,
     refreshTtlSec: env.PDS_REFRESH_TTL_SEC ? parseInt(env.PDS_REFRESH_TTL_SEC) : 2592000,
+    serviceSigningKeyHex: env.PDS_SERVICE_SIGNING_KEY_HEX,
   };
 }
 

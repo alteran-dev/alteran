@@ -1,9 +1,12 @@
 import type { APIContext } from 'astro';
-import { signJwt } from '../../lib/jwt';
 import { readJson } from '../../lib/util';
 import { drizzle } from 'drizzle-orm/d1';
 import { login_attempts } from '../../db/schema';
 import { eq } from 'drizzle-orm';
+import { createAccount, getAccountByIdentifier, storeRefreshToken } from '../../db/account';
+import { hashPassword, verifyPassword } from '../../lib/password';
+import { issueSessionTokens } from '../../lib/session-tokens';
+import { getRuntimeString } from '../../lib/secrets';
 
 export const prerender = false;
 
@@ -30,8 +33,27 @@ export async function POST({ locals, request }: APIContext) {
     );
   }
 
-  const { identifier, password } = await readJson(request).catch(() => ({ identifier: '', password: '' }));
-  const ok = !!password && password === (env.USER_PASSWORD ?? 'changeme');
+  const body = await readJson(request).catch(() => ({ identifier: '', password: '' }));
+  const identifier = typeof body.identifier === 'string' && body.identifier ? body.identifier : (await getRuntimeString(env, 'PDS_HANDLE', 'user.example'));
+  const password = typeof body.password === 'string' ? body.password : '';
+
+  let account = await getAccountByIdentifier(env, identifier ?? '');
+  if (!account) {
+    const fallbackPassword = await getRuntimeString(env, 'USER_PASSWORD', '');
+    if (fallbackPassword) {
+      const fallbackDid = await getRuntimeString(env, 'PDS_DID', 'did:example:single-user');
+      const fallbackHandle = await getRuntimeString(env, 'PDS_HANDLE', identifier);
+      const hashed = await hashPassword(fallbackPassword);
+      await createAccount(env, {
+        did: fallbackDid,
+        handle: fallbackHandle,
+        passwordScrypt: hashed,
+      });
+      account = await getAccountByIdentifier(env, identifier ?? '');
+    }
+  }
+  const passwordHash = account?.passwordScrypt ?? null;
+  const ok = !!password && !!account && (await verifyPassword(password, passwordHash));
 
   if (!ok) {
     // Track failed attempt
@@ -80,11 +102,17 @@ export async function POST({ locals, request }: APIContext) {
     await db.delete(login_attempts).where(eq(login_attempts.ip, clientIp)).run();
   }
 
-  const did = env.PDS_DID ?? 'did:example:single-user';
-  const handle = env.PDS_HANDLE ?? identifier ?? 'user.example';
-  const jti = crypto.randomUUID();
-  const accessJwt = await signJwt(env, { sub: did, handle, t: 'access' }, 'access');
-  const refreshJwt = await signJwt(env, { sub: did, handle, t: 'refresh', jti }, 'refresh');
+  const did = account?.did ?? (await getRuntimeString(env, 'PDS_DID', 'did:example:single-user'));
+  const handle = account?.handle ?? (await getRuntimeString(env, 'PDS_HANDLE', identifier ?? 'user.example'));
+
+  const { accessJwt, refreshJwt, refreshPayload, refreshExpiry } = await issueSessionTokens(env, did);
+
+  await storeRefreshToken(env, {
+    id: refreshPayload.jti,
+    did,
+    expiresAt: refreshExpiry,
+    appPasswordName: null,
+  });
 
   return new Response(JSON.stringify({ did, handle, accessJwt, refreshJwt }), {
     headers: { 'Content-Type': 'application/json' },

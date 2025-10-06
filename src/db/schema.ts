@@ -1,4 +1,31 @@
-import { sqliteTable, text, integer, index, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, primaryKey, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+export const secret = sqliteTable('secret', {
+  key: text('key').primaryKey().notNull(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'number' }).notNull(),
+});
+
+export const account = sqliteTable('account', {
+  did: text('did').primaryKey().notNull(),
+  handle: text('handle').notNull(),
+  passwordScrypt: text('password_scrypt'),
+  email: text('email'),
+  createdAt: integer('created_at', { mode: 'number' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'number' }).notNull(),
+}, (table) => ({
+  handleIdx: uniqueIndex('account_handle_unique').on(table.handle),
+}));
+
+export const refresh_token_store = sqliteTable('refresh_token', {
+  id: text('id').primaryKey().notNull(),
+  did: text('did').notNull(),
+  expiresAt: integer('expires_at', { mode: 'number' }).notNull(),
+  appPasswordName: text('app_password_name'),
+  nextId: text('next_id'),
+}, (table) => ({
+  didIdx: index('refresh_token_did_idx').on(table.did),
+}));
 
 export const repo_root = sqliteTable('repo_root', {
   did: text('did').primaryKey().notNull(),
@@ -60,15 +87,6 @@ export const blockstore = sqliteTable('blockstore', {
   cid: text('cid').primaryKey(),
   bytes: text('bytes'),
 });
-
-export const token_revocation = sqliteTable('token_revocation', {
-  jti: text('jti').primaryKey().notNull(),
-  exp: integer('exp').notNull(),
-  revoked_at: integer('revoked_at').notNull(),
-}, (table) => ({
-  // Index for cleanup queries (finding expired tokens)
-  expIdx: index('token_revocation_exp_idx').on(table.exp),
-}));
 
 export const login_attempts = sqliteTable('login_attempts', {
   ip: text('ip').primaryKey().notNull(),

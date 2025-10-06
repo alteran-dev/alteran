@@ -8,9 +8,11 @@ const SECRET_KEYS = [
   'USER_PASSWORD',
   'ACCESS_TOKEN_SECRET',
   'REFRESH_TOKEN_SECRET',
+  'SESSION_JWT_SECRET',
   'REPO_SIGNING_KEY',
   'REPO_SIGNING_KEY_PUBLIC',
   'PDS_PLC_ROTATION_KEY',
+  'PDS_SERVICE_SIGNING_KEY_HEX',
 ] as const satisfies readonly (keyof Env)[];
 
 function isSecretStoreBinding(value: unknown): value is SecretsStoreSecret {

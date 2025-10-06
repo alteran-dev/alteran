@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
 import { drizzle } from 'drizzle-orm/d1';
-import { record, blob_usage, token_revocation, commit_log, blockstore } from '../src/db/schema';
+import { record, blob_usage, commit_log, blockstore, refresh_token_store, account, secret } from '../src/db/schema';
 import { eq, desc } from 'drizzle-orm';
 
 // Mock D1 database for testing
@@ -43,8 +43,8 @@ describe('Schema Tests', () => {
       expect(schema).toBeDefined();
     });
 
-    test('token_revocation table has exp index', () => {
-      const schema = token_revocation;
+    test('refresh_token table has did index', () => {
+      const schema = refresh_token_store;
       expect(schema).toBeDefined();
     });
 
@@ -73,9 +73,15 @@ describe('Schema Tests', () => {
       expect(schema.key.notNull).toBe(true);
     });
 
-    test('token_revocation table has primary key on jti', () => {
-      const schema = token_revocation;
-      expect(schema.jti.primary).toBe(true);
+    test('refresh_token table has primary key on id', () => {
+      const schema = refresh_token_store;
+      expect(schema.id.primary).toBe(true);
+    });
+
+    test('account table requires did and handle', () => {
+      const schema = account;
+      expect(schema.did.notNull).toBe(true);
+      expect(schema.handle.notNull).toBe(true);
     });
 
     test('commit_log table has primary key on seq', () => {
@@ -100,9 +106,14 @@ describe('Schema Tests', () => {
       expect(schema.seq.dataType).toBe('number');
     });
 
-    test('token_revocation.exp is integer', () => {
-      const schema = token_revocation;
-      expect(schema.exp.dataType).toBe('number');
+    test('refresh_token.expiresAt is integer', () => {
+      const schema = refresh_token_store;
+      expect(schema.expiresAt.dataType).toBe('number');
+    });
+
+    test('secret.updatedAt is integer', () => {
+      const schema = secret;
+      expect(schema.updatedAt.dataType).toBe('number');
     });
   });
 
@@ -131,7 +142,7 @@ describe('Migration Tests', () => {
     const fs = await import('fs/promises');
     const path = await import('path');
 
-    const migrationsDir = path.join(process.cwd(), 'drizzle');
+    const migrationsDir = path.join(process.cwd(), 'migrations');
     const exists = await fs.access(migrationsDir).then(() => true).catch(() => false);
 
     expect(exists).toBe(true);
@@ -141,7 +152,7 @@ describe('Migration Tests', () => {
     const fs = await import('fs/promises');
     const path = await import('path');
 
-    const journalPath = path.join(process.cwd(), 'drizzle', 'meta', '_journal.json');
+    const journalPath = path.join(process.cwd(), 'migrations', 'meta', '_journal.json');
     const exists = await fs.access(journalPath).then(() => true).catch(() => false);
 
     expect(exists).toBe(true);
@@ -151,7 +162,7 @@ describe('Migration Tests', () => {
     const fs = await import('fs/promises');
     const path = await import('path');
 
-    const migrationsDir = path.join(process.cwd(), 'drizzle');
+    const migrationsDir = path.join(process.cwd(), 'migrations');
     const files = await fs.readdir(migrationsDir);
 
     // Check for migration files
@@ -190,9 +201,8 @@ describe('Query Performance Tests', () => {
     expect(query).toBeDefined();
   });
 
-  test('token_revocation queries by exp should use index', async () => {
-    const now = Date.now();
-    const query = db.select().from(token_revocation).where(eq(token_revocation.exp, now));
+  test('refresh_token queries by did should use index', async () => {
+    const query = db.select().from(refresh_token_store).where(eq(refresh_token_store.did, 'did:example:test'));
     expect(query).toBeDefined();
   });
 

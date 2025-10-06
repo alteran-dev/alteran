@@ -1,22 +1,13 @@
 import type { Env } from '../env';
-import { drizzle } from 'drizzle-orm/d1';
-import { token_revocation } from '../db/schema';
-import { lt } from 'drizzle-orm';
+import { cleanupExpiredRefreshTokens } from '../db/account';
 
 /**
  * Clean up expired tokens from the revocation table
  * This prevents the table from growing indefinitely
  */
 export async function cleanupExpiredTokens(env: Env): Promise<number> {
-  const db = drizzle(env.DB);
   const now = Math.floor(Date.now() / 1000);
-
-  // Delete tokens where expiry is in the past
-  const result = await db.delete(token_revocation)
-    .where(lt(token_revocation.exp, now))
-    .run();
-
-  return result.meta.changes || 0;
+  return cleanupExpiredRefreshTokens(env, now);
 }
 
 /**
