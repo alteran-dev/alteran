@@ -414,6 +414,31 @@ npm install -g wscat
 wscat -c "ws://localhost:4321/xrpc/com.atproto.sync.subscribeRepos"
 ```
 
+### Publish to a Relay (Bluesky)
+
+Relays discover PDSes via `com.atproto.sync.requestCrawl`. Your deployment will automatically notify relays on the first request it handles (and at most every 12 hours per isolate).
+
+- Set your public hostname (bare domain, no protocol):
+```
+PDS_HOSTNAME=your-pds.example.com
+```
+
+- Optional: choose relays to notify (CSV of hostnames). Defaults to `bsky.network`.
+```
+PDS_RELAY_HOSTS=bsky.network
+```
+
+- To trigger manually from your machine:
+```bash
+curl -X POST "https://bsky.network/xrpc/com.atproto.sync.requestCrawl" \
+     -H "Content-Type: application/json" \
+     -d '{"hostname":"your-pds.example.com"}'
+```
+
+Notes:
+- Use only the hostname in `hostname` (no `https://`).
+- Ensure your PDS is publicly reachable over HTTPS/WSS and that DID documents resolve to this hostname.
+
 ### Test XRPC Endpoints
 ```bash
 # Get session

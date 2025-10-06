@@ -1,6 +1,7 @@
 import { seed } from '../db/seed';
 import { validateConfigOrThrow } from '../lib/config';
 import { resolveEnvSecrets } from '../lib/secrets';
+import { notifyRelaysIfNeeded } from '../lib/relay';
 import type { Env } from '../env';
 import type { SSRManifest } from 'astro';
 import type {
@@ -63,6 +64,14 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
     }
 
     await seed(resolvedEnv.DB, (resolvedEnv.PDS_DID as string | undefined) ?? 'did:example:single-user');
+
+    // Fire-and-forget: let relays know this PDS exists and is reachable.
+    // Throttled per isolate and safe to call frequently.
+    try {
+      ctx.waitUntil(notifyRelaysIfNeeded(resolvedEnv as any, request.url));
+    } catch (err) {
+      // Never block on relay notification
+    }
 
     const url = new URL(request.url);
     if (url.pathname === '/xrpc/com.atproto.sync.subscribeRepos') {

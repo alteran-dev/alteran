@@ -45,6 +45,9 @@ declare global {
     PDS_BSKY_APP_VIEW_DID?: string;
     PDS_BSKY_APP_VIEW_CDN_URL_PATTERN?: string;
     PDS_SERVICE_SIGNING_KEY_HEX?: string | SecretsStoreSecret;
+    // Relay crawl configuration
+    PDS_RELAY_HOSTS?: string;          // CSV of relay hostnames (no scheme). Default: bsky.network
+    PDS_RELAY_NOTIFY?: string;         // 'false' to disable auto notify
   }
 
   namespace App {

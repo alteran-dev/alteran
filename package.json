@@ -1,6 +1,6 @@
 {
   "name": "@alteran/astro",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Astro integration for running a Cloudflare-hosted Bluesky PDS with Alteran.",
   "module": "index.js",
   "types": "index.d.ts",
@@ -38,7 +38,8 @@
     "db:apply:local": "bunx wrangler d1 migrations apply pds --local",
     "db:apply:local:direct": "wrangler d1 migrations apply pds --local",
     "db:reset:local": "rm -rf .wrangler/state && rm -rf drizzle && bun run db:generate && bun run db:apply:local",
-    "secrets:setup": "bun run scripts/setup-secrets.ts"
+    "secrets:setup": "bun run scripts/setup-secrets.ts",
+    "relay:request-crawl": "bun run scripts/request-crawl.ts"
   },
   "devDependencies": {
     "@astrojs/cloudflare": "^12.6.9",
