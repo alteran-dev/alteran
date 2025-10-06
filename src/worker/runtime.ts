@@ -63,6 +63,18 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
       ) as unknown as WorkersResponse;
     }
 
+    // Short-circuit CORS preflight at the worker entrypoint to avoid
+    // adapter/method routing mismatches causing 500s on OPTIONS.
+    if (request.method === 'OPTIONS') {
+      const headers = new Headers({
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Max-Age': '86400',
+      });
+      return new Response(null, { status: 204, headers }) as unknown as WorkersResponse;
+    }
+
     await seed(resolvedEnv.DB, (resolvedEnv.PDS_DID as string | undefined) ?? 'did:example:single-user');
 
     // Fire-and-forget: let relays know this PDS exists and is reachable.

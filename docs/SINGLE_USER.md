@@ -8,7 +8,7 @@ This is the minimal, one‑time checklist to run a single‑user PDS on Cloudfla
   - `wrangler secret put PDS_DID`
   - `wrangler secret put PDS_HANDLE`
   - `wrangler secret put USER_PASSWORD`
-  - `wrangler secret put ACCESS_TOKEN_SECRET`
+  - `wrangler secret put REFRESH_TOKEN`
   - `wrangler secret put REFRESH_TOKEN_SECRET`
   - `wrangler secret put REPO_SIGNING_KEY`
   - `wrangler secret put REPO_SIGNING_KEY_PUBLIC` (optional; enables key in did.json)

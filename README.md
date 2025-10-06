@@ -94,7 +94,7 @@ Auth (JWT)
 - Use `Authorization: Bearer <accessJwt>` on write routes.
 - Secrets to set (Wrangler secrets or local bindings):
   - `USER_PASSWORD` (dev login password)
-  - `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET` (HMAC keys)
+  - `ACCESS_TOKEN`, `REFRESH_TOKEN` (HMAC keys)
   - `PDS_DID`, `PDS_HANDLE`
 
 Rate limiting & limits
@@ -179,8 +179,8 @@ Set these secrets for each environment using `wrangler secret put <NAME> --env <
 | `PDS_DID` | Your DID identifier | `did:plc:abc123` or `did:web:example.com` |
 | `PDS_HANDLE` | Your handle | `user.bsky.social` |
 | `USER_PASSWORD` | Login password | Strong password |
-| `ACCESS_TOKEN_SECRET` | JWT access token secret | Random 32+ char string |
-| `REFRESH_TOKEN_SECRET` | JWT refresh token secret | Random 32+ char string |
+| `ACCESS_TOKEN` | JWT access token secret | Random 32+ char string |
+| `REFRESH_TOKEN` | JWT refresh token secret | Random 32+ char string |
 | `REPO_SIGNING_KEY` | Ed25519 signing key (base64) | From `generate-signing-key.ts` |
 
 **Generate secrets:**
@@ -196,8 +196,8 @@ bun run scripts/generate-signing-key.ts
 wrangler secret put PDS_DID --env production
 wrangler secret put PDS_HANDLE --env production
 wrangler secret put USER_PASSWORD --env production
-wrangler secret put ACCESS_TOKEN_SECRET --env production
-wrangler secret put REFRESH_TOKEN_SECRET --env production
+wrangler secret put ACCESS_TOKEN --env production
+wrangler secret put REFRESH_TOKEN --env production
 wrangler secret put REPO_SIGNING_KEY --env production
 # Optional: publish public key for DID document
 wrangler secret put REPO_SIGNING_KEY_PUBLIC --env production
@@ -212,8 +212,8 @@ Instead of Wrangler Secrets, you may bind secrets from Cloudflare Secret Store. 
   // ...
   "secrets_store_secrets": [
     { "binding": "USER_PASSWORD", "secret_name": "user_password", "store_id": "<your-store-id>" },
-    { "binding": "ACCESS_TOKEN_SECRET", "secret_name": "access_token_secret", "store_id": "<your-store-id>" },
-    { "binding": "REFRESH_TOKEN_SECRET", "secret_name": "refresh_token_secret", "store_id": "<your-store-id>" },
+    { "binding": "ACCESS_TOKEN", "secret_name": "access_token", "store_id": "<your-store-id>" },
+    { "binding": "REFRESH_TOKEN", "secret_name": "refresh_token", "store_id": "<your-store-id>" },
     { "binding": "PDS_DID", "secret_name": "pds_did", "store_id": "<your-store-id>" },
     { "binding": "PDS_HANDLE", "secret_name": "pds_handle", "store_id": "<your-store-id>" }
   ]
@@ -312,7 +312,7 @@ Blob storage
 Secrets & config (Wrangler)
 - Required:
   - `PDS_DID`, `PDS_HANDLE`, `USER_PASSWORD`
-  - `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`
+  - `ACCESS_TOKEN`, `REFRESH_TOKEN`
 - Optional:
   - `PDS_ALLOWED_MIME`, `PDS_MAX_BLOB_SIZE`, `PDS_MAX_JSON_BYTES`, `PDS_RATE_LIMIT_PER_MIN`, `PDS_CORS_ORIGIN`
 - Durable Objects: ensure binding for `Sequencer` exists and migration tag added (see `wrangler.jsonc`).
@@ -370,7 +370,7 @@ wrangler secret put REPO_SIGNING_KEY  # From step 1
 wrangler secret put PDS_DID           # Your DID
 wrangler secret put PDS_HANDLE        # Your handle
 wrangler secret put USER_PASSWORD     # Login password
-wrangler secret put ACCESS_TOKEN_SECRET
+wrangler secret put REFRESH_TOKEN
 wrangler secret put REFRESH_TOKEN_SECRET
 # Optional: publish raw public key for DID document
 wrangler secret put REPO_SIGNING_KEY_PUBLIC
@@ -384,7 +384,7 @@ REPO_SIGNING_KEY=<base64-key-from-step-1>
 # Optional: publish raw 32-byte public key in did.json
 REPO_SIGNING_KEY_PUBLIC=<base64-raw-public-key>
 USER_PASSWORD=your-password
-ACCESS_TOKEN_SECRET=your-access-secret
+REFRESH_TOKEN=your-access-secret
 REFRESH_TOKEN_SECRET=your-refresh-secret
 PDS_SEQ_WINDOW=512
 ```

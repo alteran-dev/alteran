@@ -34,7 +34,7 @@ Before starting migration, ensure these environment variables are set:
 - `PDS_HANDLE` - Your handle (e.g., username.domain.com)
 - `PDS_HOSTNAME` - Your PDS hostname
 - `USER_PASSWORD` - Password for authentication
-- `ACCESS_TOKEN_SECRET` - JWT access token secret
+- `REFRESH_TOKEN` - JWT access token secret
 - `REFRESH_TOKEN_SECRET` - JWT refresh token secret
 - `REPO_SIGNING_KEY` - Repository signing key (PKCS#8 base64)
 - `REPO_SIGNING_KEY_PUBLIC` - Public signing key (base64)

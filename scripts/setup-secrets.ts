@@ -12,15 +12,17 @@
  *   bun run scripts/setup-secrets.ts --env staging
  */
 
-import { webcrypto as crypto } from 'crypto';
-import { existsSync, writeFileSync, readFileSync } from 'fs';
-import path from 'path';
+import { webcrypto as crypto } from "crypto";
+import { existsSync, writeFileSync, readFileSync } from "fs";
+import path from "path";
 
 function arg(name: string, fallback?: string): string | undefined {
-  const i = process.argv.findIndex((a) => a === name || a.startsWith(name + '='));
+  const i = process.argv.findIndex(
+    (a) => a === name || a.startsWith(name + "="),
+  );
   if (i === -1) return fallback;
   const v = process.argv[i];
-  if (v.includes('=')) return v.split('=').slice(1).join('=');
+  if (v.includes("=")) return v.split("=").slice(1).join("=");
   return process.argv[i + 1] ?? fallback;
 }
 
@@ -29,7 +31,7 @@ function hasFlag(name: string): boolean {
 }
 
 function b64(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64');
+  return Buffer.from(bytes).toString("base64");
 }
 
 function randomB64(bytes = 32): string {
@@ -41,44 +43,51 @@ function randomB64(bytes = 32): string {
 function randomHex(bytes = 32): string {
   const buf = new Uint8Array(bytes);
   crypto.getRandomValues(buf);
-  return Buffer.from(buf).toString('hex');
+  return Buffer.from(buf).toString("hex");
 }
 
-async function generateRepoSigning(): Promise<{ privateKeyB64: string; publicRawB64: string }>{
-  const kp = await crypto.subtle.generateKey({ name: 'Ed25519', namedCurve: 'Ed25519' } as any, true, ['sign', 'verify']);
-  const pkcs8 = await crypto.subtle.exportKey('pkcs8', kp.privateKey);
-  const spkiRaw = await crypto.subtle.exportKey('raw', kp.publicKey); // 32-byte raw public key
+async function generateRepoSigning(): Promise<{
+  privateKeyB64: string;
+  publicRawB64: string;
+}> {
+  const kp = await crypto.subtle.generateKey(
+    { name: "Ed25519", namedCurve: "Ed25519" } as any,
+    true,
+    ["sign", "verify"],
+  );
+  const pkcs8 = await crypto.subtle.exportKey("pkcs8", kp.privateKey);
+  const spkiRaw = await crypto.subtle.exportKey("raw", kp.publicKey); // 32-byte raw public key
   return {
-    privateKeyB64: Buffer.from(pkcs8).toString('base64'),
-    publicRawB64: Buffer.from(spkiRaw).toString('base64'),
+    privateKeyB64: Buffer.from(pkcs8).toString("base64"),
+    publicRawB64: Buffer.from(spkiRaw).toString("base64"),
   };
 }
 
 function printHeader(title: string) {
-  const line = '='.repeat(Math.max(60, title.length + 10));
+  const line = "=".repeat(Math.max(60, title.length + 10));
   console.log(line);
   console.log(title);
   console.log(line);
 }
 
 async function main() {
-  const env = (arg('--env') || 'production').trim();
-  const did = (arg('--did') || 'did:web:example.com').trim();
-  const handle = (arg('--handle') || 'user.example.com').trim();
-  const password = arg('--password') || randomB64(24);
-  const writeDevVars = hasFlag('--write-dev-vars');
-  const force = hasFlag('--force');
+  const env = (arg("--env") || "production").trim();
+  const did = (arg("--did") || "did:web:example.com").trim();
+  const handle = (arg("--handle") || "user.example.com").trim();
+  const password = arg("--password") || randomB64(24);
+  const writeDevVars = hasFlag("--write-dev-vars");
+  const force = hasFlag("--force");
 
   const accessSecret = randomB64(32);
   const refreshSecret = randomB64(32);
   const repo = await generateRepoSigning();
   const serviceSigningKeyHex = randomHex(32);
 
-  printHeader('Generated Secrets');
+  printHeader("Generated Secrets");
   console.log(`PDS_DID                 = ${did}`);
   console.log(`PDS_HANDLE              = ${handle}`);
   console.log(`USER_PASSWORD           = ${password}`);
-  console.log(`ACCESS_TOKEN_SECRET     = ${accessSecret}`);
+  console.log(`REFRESH_TOKEN     = ${accessSecret}`);
   console.log(`REFRESH_TOKEN_SECRET    = ${refreshSecret}`);
   console.log(`REPO_SIGNING_KEY        = <base64 pkcs8, hidden>`);
   console.log(`REPO_SIGNING_KEY_PUBLIC = ${repo.publicRawB64}`);
@@ -86,54 +95,55 @@ async function main() {
   console.log();
 
   printHeader(`Wrangler Commands (${env})`);
-  const envArg = env ? ` --env ${env}` : '';
+  const envArg = env ? ` --env ${env}` : "";
   const cmds = [
     `wrangler secret put PDS_DID${envArg}`,
     `wrangler secret put PDS_HANDLE${envArg}`,
     `wrangler secret put USER_PASSWORD${envArg}`,
-    `wrangler secret put ACCESS_TOKEN_SECRET${envArg}`,
+    `wrangler secret put REFRESH_TOKEN${envArg}`,
     `wrangler secret put REFRESH_TOKEN_SECRET${envArg}`,
     `wrangler secret put REPO_SIGNING_KEY${envArg}`,
     `wrangler secret put REPO_SIGNING_KEY_PUBLIC${envArg}`,
     `wrangler secret put PDS_SERVICE_SIGNING_KEY_HEX${envArg}`,
   ];
-  console.log(cmds.join('\n'));
+  console.log(cmds.join("\n"));
   console.log();
-  console.log('Paste the following when prompted:');
-  console.log('  PDS_DID:                 ' + did);
-  console.log('  PDS_HANDLE:              ' + handle);
-  console.log('  USER_PASSWORD:           ' + password);
-  console.log('  ACCESS_TOKEN_SECRET:     ' + accessSecret);
-  console.log('  REFRESH_TOKEN_SECRET:    ' + refreshSecret);
-  console.log('  REPO_SIGNING_KEY:        ' + repo.privateKeyB64);
-  console.log('  REPO_SIGNING_KEY_PUBLIC: ' + repo.publicRawB64);
-  console.log('  PDS_SERVICE_SIGNING_KEY_HEX: ' + serviceSigningKeyHex);
+  console.log("Paste the following when prompted:");
+  console.log("  PDS_DID:                 " + did);
+  console.log("  PDS_HANDLE:              " + handle);
+  console.log("  USER_PASSWORD:           " + password);
+  console.log("  REFRESH_TOKEN:     " + accessSecret);
+  console.log("  REFRESH_TOKEN_SECRET:    " + refreshSecret);
+  console.log("  REPO_SIGNING_KEY:        " + repo.privateKeyB64);
+  console.log("  REPO_SIGNING_KEY_PUBLIC: " + repo.publicRawB64);
+  console.log("  PDS_SERVICE_SIGNING_KEY_HEX: " + serviceSigningKeyHex);
 
   if (writeDevVars) {
-    const target = path.resolve('.dev.vars');
+    const target = path.resolve(".dev.vars");
     if (existsSync(target) && !force) {
       console.error(`\n.dev.vars already exists. Use --force to overwrite.`);
     } else {
-      const content = [
-        `# Generated by setup-secrets.ts on ${new Date().toISOString()}`,
-        `PDS_DID=${did}`,
-        `PDS_HANDLE=${handle}`,
-        `USER_PASSWORD=${password}`,
-        `ACCESS_TOKEN_SECRET=${accessSecret}`,
-        `REFRESH_TOKEN_SECRET=${refreshSecret}`,
-        `REPO_SIGNING_KEY=${repo.privateKeyB64}`,
-        `REPO_SIGNING_KEY_PUBLIC=${repo.publicRawB64}`,
-        `PDS_SERVICE_SIGNING_KEY_HEX=${serviceSigningKeyHex}`,
-        `PDS_CORS_ORIGIN=*`,
-      ].join('\n') + '\n';
-      writeFileSync(target, content, 'utf8');
+      const content =
+        [
+          `# Generated by setup-secrets.ts on ${new Date().toISOString()}`,
+          `PDS_DID=${did}`,
+          `PDS_HANDLE=${handle}`,
+          `USER_PASSWORD=${password}`,
+          `REFRESH_TOKEN=${accessSecret}`,
+          `REFRESH_TOKEN_SECRET=${refreshSecret}`,
+          `REPO_SIGNING_KEY=${repo.privateKeyB64}`,
+          `REPO_SIGNING_KEY_PUBLIC=${repo.publicRawB64}`,
+          `PDS_SERVICE_SIGNING_KEY_HEX=${serviceSigningKeyHex}`,
+          `PDS_CORS_ORIGIN=*`,
+        ].join("\n") + "\n";
+      writeFileSync(target, content, "utf8");
       console.log(`\nWrote ${target}`);
     }
   }
 
-  console.log('\nDone. Next steps:');
-  console.log('- Apply D1 migrations: wrangler d1 migrations apply pds');
-  console.log(`- Deploy: bun run deploy${env ? ` --env ${env}` : ''}`);
+  console.log("\nDone. Next steps:");
+  console.log("- Apply D1 migrations: wrangler d1 migrations apply pds");
+  console.log(`- Deploy: bun run deploy${env ? ` --env ${env}` : ""}`);
 }
 
 main().catch((e) => {

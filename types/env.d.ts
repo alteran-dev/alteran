@@ -5,7 +5,7 @@ import type {
   DurableObjectNamespace,
   ExecutionContext,
   R2Bucket,
-} from '@cloudflare/workers-types';
+} from "@cloudflare/workers-types";
 
 // Minimal Secret Store binding interface. Cloudflare exposes each bound secret
 // as an object with an async `get()` that returns the secret value.
@@ -27,7 +27,7 @@ declare global {
     PDS_ALLOWED_MIME?: string;
     USER_PASSWORD?: string | SecretsStoreSecret;
     PDS_MAX_BLOB_SIZE?: string;
-    ACCESS_TOKEN_SECRET?: string | SecretsStoreSecret;
+    REFRESH_TOKEN?: string | SecretsStoreSecret;
     REFRESH_TOKEN_SECRET?: string | SecretsStoreSecret;
     SESSION_JWT_SECRET?: string | SecretsStoreSecret;
     PDS_ACCESS_TTL_SEC?: string;
@@ -46,8 +46,8 @@ declare global {
     PDS_BSKY_APP_VIEW_CDN_URL_PATTERN?: string;
     PDS_SERVICE_SIGNING_KEY_HEX?: string | SecretsStoreSecret;
     // Relay crawl configuration
-    PDS_RELAY_HOSTS?: string;          // CSV of relay hostnames (no scheme). Default: bsky.network
-    PDS_RELAY_NOTIFY?: string;         // 'false' to disable auto notify
+    PDS_RELAY_HOSTS?: string; // CSV of relay hostnames (no scheme). Default: bsky.network
+    PDS_RELAY_NOTIFY?: string; // 'false' to disable auto notify
   }
 
   namespace App {

@@ -2,7 +2,7 @@ package cuenv
 
 env: {
 	environment: test: {
-		ACCESS_TOKEN_SECRET: "access-secret"
+		REFRESH_TOKEN: "access-secret"
 		PDS_DID: "did:example:test"
 		PDS_HANDLE: "test"
 		REFRESH_TOKEN_SECRET: "refresh-secret"

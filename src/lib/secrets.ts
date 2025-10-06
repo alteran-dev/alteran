@@ -1,29 +1,33 @@
-import { setGetEnv } from 'astro/env/setup';
-import type { Env } from '../env';
-import type { SecretsStoreSecret } from '../../types/env';
+import { setGetEnv } from "astro/env/setup";
+import type { Env } from "../env";
+import type { SecretsStoreSecret } from "../../types/env";
 
 const SECRET_KEYS = [
-  'PDS_DID',
-  'PDS_HANDLE',
-  'USER_PASSWORD',
-  'ACCESS_TOKEN_SECRET',
-  'REFRESH_TOKEN_SECRET',
-  'SESSION_JWT_SECRET',
-  'REPO_SIGNING_KEY',
-  'REPO_SIGNING_KEY_PUBLIC',
-  'PDS_PLC_ROTATION_KEY',
-  'PDS_SERVICE_SIGNING_KEY_HEX',
+  "PDS_DID",
+  "PDS_HANDLE",
+  "USER_PASSWORD",
+  "REFRESH_TOKEN",
+  "REFRESH_TOKEN_SECRET",
+  "SESSION_JWT_SECRET",
+  "REPO_SIGNING_KEY",
+  "REPO_SIGNING_KEY_PUBLIC",
+  "PDS_PLC_ROTATION_KEY",
+  "PDS_SERVICE_SIGNING_KEY_HEX",
 ] as const satisfies readonly (keyof Env)[];
 
 function isSecretStoreBinding(value: unknown): value is SecretsStoreSecret {
-  return !!value && typeof value === 'object' && typeof (value as any).get === 'function';
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as any).get === "function"
+  );
 }
 
 export async function resolveSecret(
-  value: string | SecretsStoreSecret | undefined
+  value: string | SecretsStoreSecret | undefined,
 ): Promise<string | undefined> {
   if (value === undefined) return undefined;
-  if (typeof value === 'string') return value;
+  if (typeof value === "string") return value;
   if (isSecretStoreBinding(value)) return value.get();
   return undefined;
 }
@@ -41,15 +45,16 @@ export async function resolveEnvSecrets<E extends Env>(env: E): Promise<E> {
       if (val !== undefined) {
         resolved[key as string] = val;
       }
-    })
+    }),
   );
 
   setGetEnv((key) => {
     const local = resolved[key];
-    if (typeof local === 'string') return local;
-    if (typeof local === 'number' || typeof local === 'boolean') return String(local);
+    if (typeof local === "string") return local;
+    if (typeof local === "number" || typeof local === "boolean")
+      return String(local);
     const fallback = process.env[key];
-    return typeof fallback === 'string' ? fallback : undefined;
+    return typeof fallback === "string" ? fallback : undefined;
   });
 
   return resolved as E;
@@ -62,7 +67,7 @@ let astroGetSecret: AstroGetSecret | null | undefined;
 async function loadAstroGetSecret(): Promise<AstroGetSecret | null> {
   if (astroGetSecret !== undefined) return astroGetSecret;
   try {
-    const mod = await import('astro:env/server');
+    const mod = await import("astro:env/server");
     astroGetSecret = mod.getSecret as AstroGetSecret;
   } catch {
     astroGetSecret = null;
@@ -73,10 +78,10 @@ async function loadAstroGetSecret(): Promise<AstroGetSecret | null> {
 export async function getRuntimeString<K extends keyof Env>(
   env: Env,
   key: K,
-  fallback?: string
+  fallback?: string,
 ): Promise<string | undefined> {
   const current = env[key];
-  if (typeof current === 'string' && current !== '') {
+  if (typeof current === "string" && current !== "") {
     return current;
   }
 
@@ -84,7 +89,7 @@ export async function getRuntimeString<K extends keyof Env>(
   if (secretFn) {
     try {
       const value = secretFn(String(key));
-      if (typeof value === 'string' && value !== '') {
+      if (typeof value === "string" && value !== "") {
         return value;
       }
     } catch (error) {

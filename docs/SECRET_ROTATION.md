@@ -21,7 +21,7 @@ Secret rotation is a critical security practice. This guide covers rotation proc
 
 2. **Set new secret** (staging first):
    ```bash
-   wrangler secret put ACCESS_TOKEN_SECRET --env staging
+   wrangler secret put REFRESH_TOKEN --env staging
    ```
 
 3. **Test in staging**:
@@ -31,7 +31,7 @@ Secret rotation is a critical security practice. This guide covers rotation proc
 
 4. **Deploy to production**:
    ```bash
-   wrangler secret put ACCESS_TOKEN_SECRET --env production
+   wrangler secret put REFRESH_TOKEN --env production
    ```
 
 5. **Monitor**:
@@ -186,7 +186,7 @@ If you must change DID:
 
 | Secret | Frequency | Priority |
 |--------|-----------|----------|
-| `ACCESS_TOKEN_SECRET` | Every 90 days | Medium |
+| `REFRESH_TOKEN` | Every 90 days | Medium |
 | `REFRESH_TOKEN_SECRET` | Every 180 days | Medium |
 | `USER_PASSWORD` | As needed | High (if compromised) |
 | `REPO_SIGNING_KEY` | Never (unless compromised) | Critical |
@@ -202,11 +202,11 @@ Consider implementing automated rotation for JWT secrets:
 function validateToken(token: string, env: Env): boolean {
   try {
     // Try new secret first
-    return verifyJWT(token, env.ACCESS_TOKEN_SECRET);
+    return verifyJWT(token, env.REFRESH_TOKEN);
   } catch {
     // Fall back to old secret (if in rotation window)
-    if (env.ACCESS_TOKEN_SECRET_OLD) {
-      return verifyJWT(token, env.ACCESS_TOKEN_SECRET_OLD);
+    if (env.REFRESH_TOKEN_OLD) {
+      return verifyJWT(token, env.REFRESH_TOKEN_OLD);
     }
     throw new Error('Invalid token');
   }

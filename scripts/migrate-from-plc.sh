@@ -33,6 +33,8 @@ POLL_SECS_DEFAULT="300"
 NO_POLL_DEFAULT="false"
 SKIP_BLOBS_DEFAULT="false"
 
+# Optional: prompt for PDS_SERVICE_SIGNING_KEY_HEX so the operator has it handy
+
 log() { printf "[%s] %s\n" "$(date -Iseconds)" "$*"; }
 err() { printf "[ERROR] %s\n" "$*" >&2; }
 
@@ -90,6 +92,24 @@ done
 require_cmd curl
 require_cmd jq
 require_cmd awk
+
+prompt_service_signing_key_hex() {
+  # Prefer env var if set, otherwise prompt
+  local val="${PDS_SERVICE_SIGNING_KEY_HEX:-}"
+  if [[ -z "$val" ]]; then
+    read -r -s -p "Enter PDS_SERVICE_SIGNING_KEY_HEX (64 hex chars), or leave blank to skip: " val || true
+    echo
+  fi
+  if [[ -n "$val" ]] && ! [[ "$val" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    log "WARN: Provided value does not look like 64 hex chars."
+  fi
+  if [[ -n "$val" ]]; then
+    export PDS_SERVICE_SIGNING_KEY_HEX="$val"
+    log "Captured PDS_SERVICE_SIGNING_KEY_HEX for this session."
+  else
+    log "No PDS_SERVICE_SIGNING_KEY_HEX provided. Service-to-service auth may be disabled."
+  fi
+}
 
 prompt_value() {
   # $1 var name, $2 prompt label, $3 default (optional)
@@ -202,11 +222,11 @@ get_access_token() {
     fi
   fi
 
-  log "Creating admin session on Alteran"
+  log "Creating session on Alteran as $HANDLE"
   local code body
   read -r code body < <(http_json POST "$NEW/xrpc/com.atproto.server.createSession" \
     -H 'content-type: application/json' \
-    --data-binary "{\"identifier\":\"admin\",\"password\":\"$PASSWORD\"}")
+    --data-binary "{\"identifier\":\"$HANDLE\",\"password\":\"$PASSWORD\"}")
   if [[ "$code" != "200" ]]; then
     err "createSession failed (HTTP $code): $(cat "$body")"
     exit 1
@@ -446,7 +466,14 @@ request_and_submit_plc_operation() {
     -H "authorization: Bearer $ACCESS")
 
   if [[ "$code" != "200" ]]; then
-    err "getRecommendedDidCredentials failed (HTTP $code): $(cat "$body")"
+    msg=$(cat "$body")
+    err "getRecommendedDidCredentials failed (HTTP $code): $msg"
+    if echo "$msg" | grep -qi 'Signing key not configured'; then
+      log "HINT: Set REPO_SIGNING_KEY in your Worker secrets (base64 PKCS#8 Ed25519)."
+      log "      Generate with: bun run scripts/generate-signing-key.ts"
+      log "      Then: wrangler secret put REPO_SIGNING_KEY --env production"
+      log "      Optional (did.json support): wrangler secret put REPO_SIGNING_KEY_PUBLIC --env production"
+    fi
     return 1
   fi
 
@@ -556,6 +583,8 @@ wait_for_plc_hosting() {
 main() {
   log "Starting migration: DID=$DID NEW=$NEW OLD=$OLD HANDLE=$HANDLE"
   preflight
+  # Ask the operator for the PDS service signing key (optional)
+  prompt_service_signing_key_hex
   get_access_token
   get_old_access_token
   export_repo
