@@ -2,8 +2,8 @@ import { CID } from 'multiformats/cid';
 import type { Env } from '../env';
 import { MST, D1Blockstore, Leaf } from '../lib/mst';
 import { drizzle } from 'drizzle-orm/d1';
-import { repo_root } from '../db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { repo_root, record } from '../db/schema';
+import { eq, sql, like } from 'drizzle-orm';
 import type { RepoOp } from '../lib/firehose/frames';
 import * as dagCbor from '@ipld/dag-cbor';
 import { cidForCbor } from '../lib/mst/util';
@@ -200,12 +200,41 @@ export class RepoManager {
     const key = `${collection}/${rkey}`;
 
     const currentMst = await this.getRoot();
-    if (!currentMst) return null;
+    if (!currentMst) {
+      // Fallback: Try reading from record table
+      return this.getRecordFromTable(collection, rkey);
+    }
 
     const recordCid = await currentMst.get(key);
-    if (!recordCid) return null;
+    if (!recordCid) {
+      // Fallback: Try reading from record table
+      return this.getRecordFromTable(collection, rkey);
+    }
 
     return this.blockstore.readObj(recordCid);
+  }
+
+  /**
+   * Fallback: Get record directly from record table
+   */
+  private async getRecordFromTable(collection: string, rkey: string): Promise<unknown | null> {
+    const db = drizzle(this.env.DB);
+    const did = await this.getDid();
+    const uri = `at://${did}/${collection}/${rkey}`;
+
+    const row = await db
+      .select()
+      .from(record)
+      .where(eq(record.uri, uri))
+      .get();
+
+    if (!row) return null;
+
+    try {
+      return JSON.parse(row.json);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -213,17 +242,59 @@ export class RepoManager {
    */
   async listRecords(collection: string, limit = 50, cursor?: string): Promise<{ key: string; cid: CID }[]> {
     const currentMst = await this.getRoot();
-    if (!currentMst) return [];
+    if (!currentMst) {
+      // Fallback: Try reading from record table directly
+      return this.listRecordsFromTable(collection, limit, cursor);
+    }
 
     const prefix = `${collection}/`;
     const leaves = await currentMst.listWithPrefix(prefix, limit);
 
-    return leaves
+    const results = leaves
       .filter(leaf => !cursor || leaf.key > `${collection}/${cursor}`)
       .map(leaf => ({
         key: leaf.key.replace(prefix, ''),
         cid: leaf.value,
       }));
+
+    // If MST returned nothing, fallback to table
+    if (results.length === 0) {
+      return this.listRecordsFromTable(collection, limit, cursor);
+    }
+
+    return results;
+  }
+
+  /**
+   * Fallback: List records directly from record table
+   */
+  private async listRecordsFromTable(collection: string, limit = 50, cursor?: string): Promise<{ key: string; cid: CID }[]> {
+    const db = drizzle(this.env.DB);
+    const did = await this.getDid();
+    const prefix = `at://${did}/${collection}/`;
+    const pattern = `${prefix}%`;
+
+    const rows = cursor
+      ? await db
+          .select()
+          .from(record)
+          .where(sql`${record.uri} LIKE ${pattern} AND ${record.uri} > ${prefix + cursor}`)
+          .limit(limit)
+          .all()
+      : await db
+          .select()
+          .from(record)
+          .where(like(record.uri, pattern))
+          .limit(limit)
+          .all();
+
+    return rows.map(row => {
+      const rkey = row.uri.replace(prefix, '');
+      return {
+        key: rkey,
+        cid: CID.parse(row.cid),
+      };
+    });
   }
 
   /**

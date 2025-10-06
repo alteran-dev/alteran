@@ -5,6 +5,7 @@ import { bumpRoot } from '../../db/repo';
 import { isAuthorized, unauthorized } from '../../lib/auth';
 import { isAccountActive } from '../../db/dal';
 import { checkRate } from '../../lib/ratelimit';
+import { notifySequencer } from '../../lib/sequencer';
 
 export const prerender = false;
 
@@ -53,25 +54,54 @@ export async function POST({ locals, request }: APIContext) {
       if ($type === 'com.atproto.repo.applyWrites#create') {
         const { mst, recordCid } = await repoManager.addRecord(collection, rkey, value);
         results.push({
+          $type: 'com.atproto.repo.applyWrites#createResult',
           uri: `at://${repo}/${collection}/${rkey}`,
           cid: recordCid.toString(),
+          validationStatus: 'valid',
         });
       } else if ($type === 'com.atproto.repo.applyWrites#update') {
         const { mst, recordCid } = await repoManager.updateRecord(collection, rkey, value);
         results.push({
+          $type: 'com.atproto.repo.applyWrites#updateResult',
           uri: `at://${repo}/${collection}/${rkey}`,
           cid: recordCid.toString(),
+          validationStatus: 'valid',
         });
       } else if ($type === 'com.atproto.repo.applyWrites#delete') {
         await repoManager.deleteRecord(collection, rkey);
         results.push({
-          uri: `at://${repo}/${collection}/${rkey}`,
+          $type: 'com.atproto.repo.applyWrites#deleteResult',
         });
       }
     }
 
     // Bump repo root to create new commit
     const { commitCid, rev } = await bumpRoot(env);
+
+    // Notify sequencer about the commit for firehose
+    try {
+      const commitData = await env.DB.prepare(
+        'SELECT data, sig FROM commit_log WHERE cid = ?'
+      ).bind(commitCid).first();
+
+      if (commitData) {
+        await notifySequencer(env, {
+          did: env.PDS_DID ?? 'did:example:single-user',
+          commitCid,
+          rev,
+          data: commitData.data,
+          sig: commitData.sig,
+          ops: writes.map((w: any) => ({
+            action: w.$type?.split('#')[1] || 'create',
+            path: `${w.collection}/${w.rkey}`,
+            cid: null, // Will be filled by sequencer if needed
+          })),
+        });
+      }
+    } catch (err) {
+      console.error('Failed to notify sequencer:', err);
+      // Don't fail the request if sequencer notification fails
+    }
 
     return new Response(
       JSON.stringify({
