@@ -8,7 +8,7 @@ import {
   isValidTid,
 } from '../src/lib/commit';
 import { CID } from 'multiformats/cid';
-import { webcrypto } from 'crypto';
+import { Secp256k1Keypair } from '@atproto/crypto';
 
 describe('Commit Structure & Signing', () => {
   test('should create a commit', () => {
@@ -32,18 +32,11 @@ describe('Commit Structure & Signing', () => {
   });
 
   test('should sign and verify commit', async () => {
-    // Generate test keypair
-    const keyPair = await webcrypto.subtle.generateKey(
-      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-      true,
-      ['sign', 'verify']
-    );
-
-    const privateKeyBuffer = await webcrypto.subtle.exportKey('pkcs8', keyPair.privateKey);
-    const privateKeyBase64 = Buffer.from(privateKeyBuffer).toString('base64');
-
-    const publicKeyBuffer = await webcrypto.subtle.exportKey('spki', keyPair.publicKey);
-    const publicKeyBase64 = Buffer.from(publicKeyBuffer).toString('base64');
+    // Generate test keypair (secp256k1)
+    const keypair = await Secp256k1Keypair.create({ exportable: true });
+    const privBytes = await keypair.export();
+    const privateKeyHex = Array.from(privBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    const didKey = keypair.did();
 
     // Create and sign commit
     const did = 'did:plc:test123';
@@ -51,33 +44,28 @@ describe('Commit Structure & Signing', () => {
     const rev = generateTid();
 
     const commit = createCommit(did, mstRoot, rev);
-    const signedCommit = await signCommit(commit, privateKeyBase64);
+    const signedCommit = await signCommit(commit, privateKeyHex);
 
     // Verify signature
-    const isValid = await verifyCommit(signedCommit, publicKeyBase64);
+    const isValid = await verifyCommit(signedCommit, didKey);
     expect(isValid).toBe(true);
   });
 
   test('should calculate deterministic commit CID', async () => {
-    const keyPair = await webcrypto.subtle.generateKey(
-      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-      true,
-      ['sign', 'verify']
-    );
-
-    const privateKeyBuffer = await webcrypto.subtle.exportKey('pkcs8', keyPair.privateKey);
-    const privateKeyBase64 = Buffer.from(privateKeyBuffer).toString('base64');
+    const keypair = await Secp256k1Keypair.create({ exportable: true });
+    const privBytes = await keypair.export();
+    const privateKeyHex = Array.from(privBytes).map(b => b.toString(16).padStart(2, '0')).join('');
 
     const did = 'did:plc:test123';
     const mstRoot = CID.parse('bafyreigbtj4x7ip5legnfznufuopl4sg4knzc2cof6duas4b3q2fy6swua');
     const rev = '3jzfcijpj2z2a';
 
     const commit1 = createCommit(did, mstRoot, rev);
-    const signed1 = await signCommit(commit1, privateKeyBase64);
+    const signed1 = await signCommit(commit1, privateKeyHex);
     const cid1 = await commitCid(signed1);
 
     const commit2 = createCommit(did, mstRoot, rev);
-    const signed2 = await signCommit(commit2, privateKeyBase64);
+    const signed2 = await signCommit(commit2, privateKeyHex);
     const cid2 = await commitCid(signed2);
 
     // CIDs should be the same for identical commits
@@ -85,33 +73,21 @@ describe('Commit Structure & Signing', () => {
   });
 
   test('should reject invalid signature', async () => {
-    const keyPair1 = await webcrypto.subtle.generateKey(
-      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-      true,
-      ['sign', 'verify']
-    );
-
-    const keyPair2 = await webcrypto.subtle.generateKey(
-      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-      true,
-      ['sign', 'verify']
-    );
-
-    const privateKey1Buffer = await webcrypto.subtle.exportKey('pkcs8', keyPair1.privateKey);
-    const privateKey1Base64 = Buffer.from(privateKey1Buffer).toString('base64');
-
-    const publicKey2Buffer = await webcrypto.subtle.exportKey('spki', keyPair2.publicKey);
-    const publicKey2Base64 = Buffer.from(publicKey2Buffer).toString('base64');
+    const keypair1 = await Secp256k1Keypair.create({ exportable: true });
+    const keypair2 = await Secp256k1Keypair.create({ exportable: true });
+    const priv1Bytes = await keypair1.export();
+    const privateKey1Hex = Array.from(priv1Bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    const wrongDid = keypair2.did();
 
     const did = 'did:plc:test123';
     const mstRoot = CID.parse('bafyreigbtj4x7ip5legnfznufuopl4sg4knzc2cof6duas4b3q2fy6swua');
     const rev = generateTid();
 
     const commit = createCommit(did, mstRoot, rev);
-    const signedCommit = await signCommit(commit, privateKey1Base64);
+    const signedCommit = await signCommit(commit, privateKey1Hex);
 
     // Verify with wrong public key should fail
-    const isValid = await verifyCommit(signedCommit, publicKey2Base64);
+    const isValid = await verifyCommit(signedCommit, wrongDid);
     expect(isValid).toBe(false);
   });
 });

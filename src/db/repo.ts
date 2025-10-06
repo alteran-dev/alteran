@@ -119,29 +119,26 @@ export async function appendCommit(env: Env, cid: string, rev: string, data: str
     .run();
 }
 
-// Cache for dev-mode ephemeral signing key (in-memory for worker/astro dev)
+// Cache for dev-mode ephemeral signing key (hex string)
 let cachedDevSigningKey: string | undefined;
 
 async function getSigningKey(env: Env): Promise<string> {
-  const configured = await resolveSecret(env.REPO_SIGNING_KEY);
-  if (configured && configured.trim() !== '') return configured;
+  const configured = await resolveSecret((env as any).REPO_COMMIT_SIGNING_KEY);
+  if (configured && configured.trim() !== '') return configured.trim();
 
   const envName = (env as any).ENVIRONMENT || 'development';
   if (envName !== 'production') {
     if (cachedDevSigningKey) return cachedDevSigningKey;
-    // Generate an ephemeral Ed25519 keypair and cache private key (PKCS#8 base64)
-    const keyPair = await crypto.subtle.generateKey(
-      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-      true,
-      ['sign', 'verify']
-    );
-    const pkcs8 = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
-    let s = '';
-    const u8 = new Uint8Array(pkcs8);
-    for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
-    cachedDevSigningKey = btoa(s);
+    // Generate an ephemeral secp256k1 keypair and cache private key (hex)
+    const { Secp256k1Keypair } = await import('@atproto/crypto');
+    const kp = await Secp256k1Keypair.create({ exportable: true });
+    const privBytes = await kp.export();
+    // to hex
+    let hex = '';
+    for (const b of privBytes) hex += b.toString(16).padStart(2, '0');
+    cachedDevSigningKey = hex;
     return cachedDevSigningKey;
   }
 
-  throw new Error('REPO_SIGNING_KEY not configured');
+  throw new Error('REPO_COMMIT_SIGNING_KEY not configured');
 }

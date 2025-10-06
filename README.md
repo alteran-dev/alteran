@@ -181,7 +181,9 @@ Set these secrets for each environment using `wrangler secret put <NAME> --env <
 | `USER_PASSWORD` | Login password | Strong password |
 | `ACCESS_TOKEN` | JWT access token secret | Random 32+ char string |
 | `REFRESH_TOKEN` | JWT refresh token secret | Random 32+ char string |
-| `REPO_SIGNING_KEY` | Ed25519 signing key (base64) | From `generate-signing-key.ts` |
+| `REPO_COMMIT_SIGNING_KEY` | secp256k1 commit signing key (hex, 64 chars) | From `scripts/setup-secrets.ts` |
+| `REPO_SIGNING_KEY` | Ed25519 service-auth signing key (base64 PKCS#8) | From `scripts/generate-signing-key.ts` |
+| `REPO_SIGNING_KEY_PUBLIC` | Ed25519 public key (raw base64) | From `scripts/generate-signing-key.ts` |
 
 **Generate secrets:**
 ```bash
@@ -198,8 +200,8 @@ wrangler secret put PDS_HANDLE --env production
 wrangler secret put USER_PASSWORD --env production
 wrangler secret put ACCESS_TOKEN --env production
 wrangler secret put REFRESH_TOKEN --env production
+wrangler secret put REPO_COMMIT_SIGNING_KEY --env production
 wrangler secret put REPO_SIGNING_KEY --env production
-# Optional: publish public key for DID document
 wrangler secret put REPO_SIGNING_KEY_PUBLIC --env production
 ```
 
@@ -333,7 +335,7 @@ This PDS now implements full AT Protocol core compliance with:
 - ✅ D1 blockstore integration
 
 ### Signed Commits
-- ✅ Ed25519 cryptographic signatures
+- ✅ secp256k1 cryptographic signatures
 - ✅ AT Protocol v3 commit structure
 - ✅ TID-based revisions
 - ✅ Commit chain tracking
@@ -366,23 +368,23 @@ bun run scripts/generate-signing-key.ts
 
 **Required Secrets:**
 ```bash
-wrangler secret put REPO_SIGNING_KEY  # From step 1
-wrangler secret put PDS_DID           # Your DID
-wrangler secret put PDS_HANDLE        # Your handle
-wrangler secret put USER_PASSWORD     # Login password
+wrangler secret put REPO_COMMIT_SIGNING_KEY  # secp256k1 (from setup-secrets)
+wrangler secret put REPO_SIGNING_KEY         # Ed25519 (from generate-signing-key)
+wrangler secret put REPO_SIGNING_KEY_PUBLIC  # Ed25519 raw public (from generate-signing-key)
+wrangler secret put PDS_DID                  # Your DID
+wrangler secret put PDS_HANDLE               # Your handle
+wrangler secret put USER_PASSWORD            # Login password
 wrangler secret put REFRESH_TOKEN
 wrangler secret put REFRESH_TOKEN_SECRET
-# Optional: publish raw public key for DID document
-wrangler secret put REPO_SIGNING_KEY_PUBLIC
 ```
 
 **For Local Development (.dev.vars):**
 ```env
 PDS_DID=did:plc:your-did-here
 PDS_HANDLE=your-handle.bsky.social
-REPO_SIGNING_KEY=<base64-key-from-step-1>
-# Optional: publish raw 32-byte public key in did.json
-REPO_SIGNING_KEY_PUBLIC=<base64-raw-public-key>
+REPO_COMMIT_SIGNING_KEY=<hex-secp256k1-private-key>
+REPO_SIGNING_KEY=<base64-pkcs8-ed25519>
+REPO_SIGNING_KEY_PUBLIC=<base64-raw-ed25519-public>
 USER_PASSWORD=your-password
 REFRESH_TOKEN=your-access-secret
 REFRESH_TOKEN_SECRET=your-refresh-secret

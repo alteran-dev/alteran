@@ -1,6 +1,7 @@
 import { CID } from 'multiformats/cid';
 import * as dagCbor from '@ipld/dag-cbor';
 import { sha256 } from 'multiformats/hashes/sha2';
+import { Secp256k1Keypair, verifySignature } from '@atproto/crypto';
 
 /**
  * AT Protocol Commit Structure
@@ -12,7 +13,7 @@ import { sha256 } from 'multiformats/hashes/sha2';
  * - data: CID of the MST root
  * - rev: Revision number (TID format)
  * - prev: CID of the previous commit (null for first commit)
- * - sig: Ed25519 signature over the commit data
+ * - sig: secp256k1 signature over the commit data (64-byte compact)
  */
 
 export interface CommitData {
@@ -50,30 +51,33 @@ export function createCommit(
  */
 export async function signCommit(
   commit: CommitData,
-  privateKeyBase64: string,
+  privateKey: string,
 ): Promise<SignedCommit> {
   // Encode commit to CBOR for signing
   const commitBytes = dagCbor.encode(commit);
 
-  // Import private key (PKCS#8 base64)
-  const b64 = privateKeyBase64.replace(/\s+/g, '');
-  const bin = atob(b64);
-  const pkcs8 = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) pkcs8[i] = bin.charCodeAt(i);
-  const privateKey = await crypto.subtle.importKey(
-    'pkcs8',
-    pkcs8,
-    { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-    false,
-    ['sign']
-  );
+  // Accept hex (preferred) or base64 input for the 32-byte secp256k1 private key
+  const cleaned = privateKey.trim();
+  let keypair: Secp256k1Keypair;
+  if (/^[0-9a-fA-F]{64}$/.test(cleaned)) {
+    keypair = await Secp256k1Keypair.import(cleaned);
+  } else {
+    // try base64
+    try {
+      const bin = atob(cleaned.replace(/\s+/g, ''));
+      const priv = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) priv[i] = bin.charCodeAt(i);
+      keypair = await Secp256k1Keypair.import(priv);
+    } catch (e) {
+      throw new Error('Invalid REPO_SIGNING_KEY format: expected 32-byte hex or base64');
+    }
+  }
 
-  // Sign the commit bytes
-  const signature = await crypto.subtle.sign('Ed25519', privateKey, new Uint8Array(commitBytes as unknown as Uint8Array));
+  const signature = await keypair.sign(new Uint8Array(commitBytes as unknown as Uint8Array));
 
   return {
     ...commit,
-    sig: new Uint8Array(signature),
+    sig: signature,
   };
 }
 
@@ -82,28 +86,13 @@ export async function signCommit(
  */
 export async function verifyCommit(
   signedCommit: SignedCommit,
-  publicKeyBase64: string,
+  didKey: string,
 ): Promise<boolean> {
   try {
     // Extract commit data (without signature)
     const { sig, ...commit } = signedCommit;
     const commitBytes = dagCbor.encode(commit);
-
-    // Import public key (SPKI base64)
-    const b64 = publicKeyBase64.replace(/\s+/g, '');
-    const bin = atob(b64);
-    const spki = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) spki[i] = bin.charCodeAt(i);
-    const publicKey = await crypto.subtle.importKey(
-      'spki',
-      spki,
-      { name: 'Ed25519', namedCurve: 'Ed25519' } as any,
-      false,
-      ['verify']
-    );
-
-    // Verify signature
-    return await crypto.subtle.verify('Ed25519', publicKey, sig as any, new Uint8Array(commitBytes as unknown as Uint8Array));
+    return verifySignature(didKey, new Uint8Array(commitBytes as unknown as Uint8Array), sig);
   } catch (error) {
     console.error('Commit verification failed:', error);
     return false;

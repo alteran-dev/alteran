@@ -90,7 +90,6 @@ Secret rotation is a critical security practice. This guide covers rotation proc
 3. **Set new signing key**:
    ```bash
    wrangler secret put REPO_SIGNING_KEY --env production
-   wrangler secret put REPO_SIGNING_KEY_PUBLIC --env production
    ```
 
 4. **Trigger repository re-signing**:
@@ -99,8 +98,8 @@ Secret rotation is a critical security practice. This guide covers rotation proc
    - MST must be rebuilt
 
 5. **Update DID document** (if using did:web):
-   - Update the signing key in your DID document
-   - Publish to `/.well-known/did.json`
+   - Ensure your PLC operation or did:web document advertises `verificationMethods.atproto` as the did:key derived from the new REPO_SIGNING_KEY.
+   - Publish to `/.well-known/did.json` if using did:web.
 
 6. **Verify**:
    ```bash
