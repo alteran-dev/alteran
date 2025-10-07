@@ -11,34 +11,7 @@ async function ensureTable(env: Env) {
   tableEnsured = true;
 }
 
-const DEFAULT_PREFERENCES = [
-  {
-    $type: 'app.bsky.actor.defs#savedFeedsPrefV2',
-    items: [],
-  },
-  {
-    $type: 'app.bsky.actor.defs#feedViewPref',
-    feed: 'home',
-    hideReplies: false,
-    hideRepliesByUnfollowed: false,
-    hideRepliesByLikeCount: 0,
-    hideReposts: false,
-    hideQuotePosts: false,
-  },
-  {
-    $type: 'app.bsky.actor.defs#threadViewPref',
-    sort: 'oldest',
-    prioritizeFollowedUsers: true,
-  },
-  {
-    $type: 'app.bsky.actor.defs#labelersPref',
-    labelers: [
-      {
-        did: 'did:plc:ar7c4by46qjdydhdevvrndac',
-      },
-    ],
-  },
-];
+// No defaults — return empty when nothing stored to avoid local fallbacks
 
 export async function getActorPreferences(env: Env): Promise<{ did: string; preferences: any[] }> {
   await ensureTable(env);
@@ -48,16 +21,15 @@ export async function getActorPreferences(env: Env): Promise<{ did: string; pref
     .first<{ json: string }>();
 
   if (!row?.json) {
-    return { did, preferences: DEFAULT_PREFERENCES };
+    return { did, preferences: [] };
   }
 
   try {
     const parsed = JSON.parse(row.json);
     const preferences = Array.isArray(parsed) ? parsed : [];
-    // If preferences exist but are empty, return defaults
-    return { did, preferences: preferences.length > 0 ? preferences : DEFAULT_PREFERENCES };
+    return { did, preferences };
   } catch {
-    return { did, preferences: DEFAULT_PREFERENCES };
+    return { did, preferences: [] };
   }
 }
 

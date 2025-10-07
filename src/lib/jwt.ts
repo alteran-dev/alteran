@@ -1,6 +1,5 @@
 import type { Env } from "../env";
 import { getRuntimeString } from "./secrets";
-import { base58btc } from "multiformats/bases/base58";
 import {
   issueSessionTokens,
   verifyAccessToken,
@@ -85,8 +84,6 @@ export async function verifyJwt(
     );
     if (!secret) return null;
     ok = await hmacJwtVerify(parts[0] + "." + parts[1], parts[2], secret);
-  } else if (header.alg === "EdDSA" && header.typ === "JWT") {
-    ok = await eddsaJwtVerify(parts[0] + "." + parts[1], parts[2], env);
   } else {
     return null;
   }
@@ -136,71 +133,6 @@ async function hmacJwtVerify(
   return !!ok;
 }
 
-async function eddsaJwtSign(payload: any, env: Env): Promise<string> {
-  const enc = new TextEncoder();
-  const header = { alg: "EdDSA", typ: "JWT" };
-  const h = b64url(enc.encode(JSON.stringify(header)));
-  const p = b64url(enc.encode(JSON.stringify(payload)));
-  const data = `${h}.${p}`;
-
-  // Import Ed25519 private key from env
-  const keyData = await getRuntimeString(env, "REPO_SIGNING_KEY");
-  if (!keyData) {
-    throw new Error("REPO_SIGNING_KEY not configured for EdDSA JWTs");
-  }
-
-  // Decode base64 private key
-  const keyBytes = b64urlDecode(keyData);
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    keyBytes,
-    { name: "Ed25519" } as any,
-    false,
-    ["sign"],
-  );
-
-  const sig = await crypto.subtle.sign("Ed25519", key, enc.encode(data));
-  const s = b64url(new Uint8Array(sig));
-  return `${h}.${p}.${s}`;
-}
-
-async function eddsaJwtVerify(
-  data: string,
-  sigB64: string,
-  env: Env,
-): Promise<boolean> {
-  const enc = new TextEncoder();
-
-  // Import Ed25519 public key from env
-  const keyData = await getRuntimeString(env, "REPO_SIGNING_KEY_PUBLIC");
-  if (!keyData) {
-    console.error(
-      "EdDSA JWT verification failed: REPO_SIGNING_KEY_PUBLIC not configured",
-    );
-    return false;
-  }
-
-  try {
-    const key = await importEd25519PublicKey(keyData);
-    if (!key) {
-      console.error(
-        "EdDSA JWT verification failed: unsupported public key format for Ed25519",
-      );
-      return false;
-    }
-
-    const ok = await crypto.subtle.verify(
-      "Ed25519",
-      key,
-      b64urlDecode(sigB64),
-      enc.encode(data),
-    );
-    return !!ok;
-  } catch (error) {
-    console.error("EdDSA JWT verification error:", error);
-    return false;
-  }
-}
 
 function b64url(bytes: ArrayBuffer | Uint8Array): string {
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -219,103 +151,4 @@ function b64urlDecode(s: string): Uint8Array {
   return out;
 }
 
-async function importEd25519PublicKey(
-  value: string,
-): Promise<CryptoKey | null> {
-  const attempts = buildPublicKeyCandidates(value);
-  for (const attempt of attempts) {
-    try {
-      return await crypto.subtle.importKey(
-        attempt.format,
-        attempt.data,
-        { name: "Ed25519", namedCurve: "Ed25519" } as any,
-        false,
-        ["verify"],
-      );
-    } catch (error) {
-      console.warn(
-        "EdDSA JWT verification warning: failed to import key candidate",
-        error,
-      );
-    }
-  }
-  return null;
-}
-
-type KeyImportAttempt = { format: KeyFormat; data: Uint8Array };
-type KeyFormat = "raw" | "spki";
-
-function buildPublicKeyCandidates(value: string): KeyImportAttempt[] {
-  const trimmed = value.trim();
-  const attempts: KeyImportAttempt[] = [];
-
-  const didKeyCandidate = decodeDidKey(trimmed);
-  if (didKeyCandidate) {
-    attempts.push({ format: "raw", data: didKeyCandidate });
-  }
-
-  const pemMatch = trimmed.match(
-    /-----BEGIN PUBLIC KEY-----([\s\S]+?)-----END PUBLIC KEY-----/,
-  );
-  if (pemMatch) {
-    const derBytes = decodeBase64(pemMatch[1].replace(/\s+/g, ""));
-    if (derBytes) {
-      attempts.push({ format: "spki", data: derBytes });
-    }
-  }
-
-  const compact = trimmed.replace(/\s+/g, "");
-  const decoded = decodeBase64(compact);
-  if (decoded) {
-    if (decoded.length === 32) {
-      attempts.push({ format: "raw", data: decoded });
-    } else {
-      attempts.push({ format: "spki", data: decoded });
-    }
-  }
-
-  return attempts;
-}
-
-function decodeBase64(value: string): Uint8Array | null {
-  const cleaned = value.replace(/\s+/g, "");
-  if (!cleaned) return null;
-  try {
-    return b64urlDecode(cleaned);
-  } catch {
-    const normalized = cleaned.replace(/-/g, "+").replace(/_/g, "/");
-    const padLength = normalized.length % 4;
-    const padded =
-      padLength === 0
-        ? normalized
-        : padLength === 2
-          ? normalized + "=="
-          : padLength === 3
-            ? normalized + "="
-            : normalized + "===";
-    const bin = atob(padded);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  }
-}
-
-function decodeDidKey(didKey: string): Uint8Array | null {
-  if (!didKey.startsWith("did:key:")) return null;
-  try {
-    const multibase = didKey.slice("did:key:".length);
-    const bytes = base58btc.decode(multibase);
-    if (bytes.length === 34 && bytes[0] === 0xed && bytes[1] === 0x01) {
-      return bytes.slice(2);
-    }
-    console.warn(
-      "EdDSA JWT verification warning: unsupported did:key multicodec prefix",
-    );
-  } catch (error) {
-    console.warn(
-      "EdDSA JWT verification warning: failed to parse did:key",
-      error,
-    );
-  }
-  return null;
-}
+// EdDSA (Ed25519) path removed; only HS256 session tokens are supported

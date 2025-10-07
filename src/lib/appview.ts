@@ -2,14 +2,22 @@ import type { Env } from '../env';
 import { getRuntimeString } from './secrets';
 import { authenticateRequest, unauthorized } from './auth';
 
-const DEFAULT_APPVIEW_URL = 'https://public.api.bsky.app';
+const DEFAULT_APPVIEW_URL = 'https://api.bsky.app';
 const DEFAULT_APPVIEW_DID = 'did:web:api.bsky.app';
+const DEFAULT_CHAT_URL = 'https://api.bsky.chat';
+const DEFAULT_CHAT_DID = 'did:web:api.bsky.chat';
+const DEFAULT_OZONE_URL = 'https://mod.bsky.app';
+const DEFAULT_OZONE_DID = 'did:plc:ar7c4by46qjdydhdevvrndac';
 
 export interface AppViewConfig {
   url: string;
   did: string;
   cdnUrlPattern?: string;
 }
+
+type ServiceId = 'bsky_appview' | 'bsky_chat' | 'atproto_labeler';
+
+interface ServiceConfig { id: ServiceId; url: string; did: string }
 
 
 const didDocumentCache = new Map<string, Promise<unknown>>();
@@ -33,10 +41,7 @@ function randomHex(bytes = 16): string {
   return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-interface ProxyTarget {
-  did: string;
-  url: string;
-}
+interface ProxyTarget { did: string; url: string }
 
 type AuthScope =
   | 'com.atproto.access'
@@ -89,6 +94,8 @@ const PROTECTED_METHODS = new Set<string>([
   'com.atproto.server.updateEmail',
 ]);
 
+// (no-op placeholder; do not short-circuit to fallback)
+
 class ProxyHeaderError extends Error {}
 
 function resolveAuthScope(scope: unknown): AuthScope {
@@ -97,6 +104,9 @@ function resolveAuthScope(scope: unknown): AuthScope {
   }
 
   switch (scope) {
+    case 'access':
+      // Map internal session token scope to official value
+      return 'com.atproto.access';
     case 'com.atproto.access':
     case 'com.atproto.appPass':
     case 'com.atproto.appPassPrivileged':
@@ -122,7 +132,7 @@ function parseProxyHeader(header: string): { did: string; serviceId: string } {
   }
 
   const did = value.slice(0, hashIndex);
-  const serviceId = value.slice(hashIndex);
+  const serviceId = value.slice(hashIndex); // includes leading '#'
 
   if (!did.startsWith('did:')) {
     throw new ProxyHeaderError('invalid DID');
@@ -139,24 +149,24 @@ function parseProxyHeader(header: string): { did: string; serviceId: string } {
   return { did, serviceId };
 }
 
-async function resolveProxyTarget(
+async function resolveProxyTargetWithRegistry(
   env: Env,
   proxyHeader: string,
-  config: AppViewConfig,
+  registry: Record<ServiceId, ServiceConfig>,
 ): Promise<ProxyTarget> {
   const { did, serviceId } = parseProxyHeader(proxyHeader);
 
-  if (did === config.did && serviceId === '#bsky_appview') {
-    return { did, url: config.url };
+  const sid = serviceId.startsWith('#') ? (serviceId.slice(1) as ServiceId) : (serviceId as ServiceId);
+  const known = registry[sid];
+  if (known && did === known.did) {
+    return { did, url: known.url };
   }
 
   const didDoc = await resolveDidDocument(env, did);
   const endpoint = getServiceEndpointFromDidDoc(didDoc, did, serviceId);
-
   if (!endpoint) {
     throw new ProxyHeaderError('service id not found in DID document');
   }
-
   return { did, url: endpoint };
 }
 
@@ -275,6 +285,48 @@ export function getAppViewConfig(env: Env): AppViewConfig | null {
   return { url, did, cdnUrlPattern: cdn || undefined };
 }
 
+function getChatConfig(env: Env): ServiceConfig {
+  const url = (typeof env.PDS_BSKY_CHAT_URL === 'string' && env.PDS_BSKY_CHAT_URL.trim() !== '')
+    ? env.PDS_BSKY_CHAT_URL.trim()
+    : DEFAULT_CHAT_URL;
+  const did = (typeof env.PDS_BSKY_CHAT_DID === 'string' && env.PDS_BSKY_CHAT_DID.trim() !== '')
+    ? env.PDS_BSKY_CHAT_DID.trim()
+    : DEFAULT_CHAT_DID;
+  return { id: 'bsky_chat', url, did };
+}
+
+function getOzoneConfig(env: Env): ServiceConfig {
+  const url = (typeof env.PDS_OZONE_URL === 'string' && env.PDS_OZONE_URL.trim() !== '')
+    ? env.PDS_OZONE_URL.trim()
+    : DEFAULT_OZONE_URL;
+  const did = (typeof env.PDS_OZONE_DID === 'string' && env.PDS_OZONE_DID.trim() !== '')
+    ? env.PDS_OZONE_DID.trim()
+    : DEFAULT_OZONE_DID;
+  return { id: 'atproto_labeler', url, did };
+}
+
+function getServiceRegistry(env: Env): Record<ServiceId, ServiceConfig> {
+  const app = getAppViewConfig(env);
+  const chat = getChatConfig(env);
+  const ozone = getOzoneConfig(env);
+  if (!app) {
+    throw new Error('AppView not configured');
+  }
+  return {
+    bsky_appview: { id: 'bsky_appview', url: app.url, did: app.did },
+    bsky_chat: chat,
+    atproto_labeler: ozone,
+  };
+}
+
+function defaultServiceForNsid(env: Env, nsid: string): ServiceConfig {
+  const reg = getServiceRegistry(env);
+  if (nsid.startsWith('chat.bsky.')) return reg.bsky_chat;
+  if (nsid.startsWith('tools.ozone.') || nsid.startsWith('com.atproto.moderation.')) return reg.atproto_labeler;
+  // default to AppView for app.bsky.* and everything else that's proxied
+  return reg.bsky_appview;
+}
+
 async function createServiceJwt(
   env: Env,
   issuerDid: string,
@@ -282,8 +334,6 @@ async function createServiceJwt(
   lexiconMethod: string | null,
   expiresInSeconds = 60,
 ): Promise<string> {
-  // Sign with Ed25519 (EdDSA) using REPO_SIGNING_KEY so it matches the DID's
-  // atproto key after migration. No K256 fallback to avoid mismatches.
   const now = Math.floor(Date.now() / 1000);
   const exp = now + Math.max(1, expiresInSeconds);
   const payload: Record<string, unknown> = {
@@ -295,34 +345,38 @@ async function createServiceJwt(
   };
   if (lexiconMethod) payload.lxm = lexiconMethod;
 
-  // Use Ed25519 via REPO_SIGNING_KEY
-  const repoKeyB64 = await getRuntimeString(env, 'REPO_SIGNING_KEY', '');
-  if (repoKeyB64 && repoKeyB64.trim() !== '') {
-    const header = { typ: 'JWT', alg: 'EdDSA' };
-    const encodedHeader = encodeJson(header as any);
-    const encodedPayload = encodeJson(payload);
-    const toSign = `${encodedHeader}.${encodedPayload}`;
-    const signature = await ed25519Sign(repoKeyB64.trim(), toSign);
-    const encodedSignature = encodeBase64Url(signature);
-    return `${toSign}.${encodedSignature}`;
+  // Always ES256K: sign with secp256k1 using REPO_SIGNING_KEY
+  const priv = (await getRuntimeString(env, 'REPO_SIGNING_KEY', '')).trim();
+  if (!priv) throw new Error('REPO_SIGNING_KEY not configured for ES256K service-auth');
+
+  // Service-auth uses a standard JWT header with ES256K
+  const header = { typ: 'JWT', alg: 'ES256K' } as const;
+  const encodedHeader = encodeJson(header as any);
+  const encodedPayload = encodeJson(payload);
+  const toSign = `${encodedHeader}.${encodedPayload}`;
+
+  const signature = await es256kSign(priv, toSign);
+  const encodedSignature = encodeBase64Url(signature);
+  return `${toSign}.${encodedSignature}`;
+}
+
+async function es256kSign(privateKey: string, data: string): Promise<Uint8Array> {
+  // Accept 32-byte hex (preferred) or base64 for secp256k1 private key
+  const cleaned = privateKey.trim();
+  const { Secp256k1Keypair } = await import('@atproto/crypto');
+  let keypair: any;
+  if (/^[0-9a-fA-F]{64}$/.test(cleaned)) {
+    keypair = await Secp256k1Keypair.import(cleaned);
+  } else {
+    // try base64
+    const bin = atob(cleaned.replace(/\s+/g, ''));
+    const priv = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) priv[i] = bin.charCodeAt(i);
+    keypair = await Secp256k1Keypair.import(priv);
   }
-
-  throw new Error('REPO_SIGNING_KEY not configured for service-auth');
-}
-
-async function ed25519Sign(pkcs8Base64: string, data: string): Promise<Uint8Array> {
-  const keyBytes = base64UrlToBytes(pkcs8Base64);
-  const key = await crypto.subtle.importKey('pkcs8', keyBytes, { name: 'Ed25519' } as any, false, ['sign']);
-  const sig = await crypto.subtle.sign('Ed25519', key, new TextEncoder().encode(data));
-  return new Uint8Array(sig);
-}
-
-function base64UrlToBytes(b64: string): Uint8Array {
-  const cleaned = b64.replace(/\s+/g, '');
-  const bin = atob(cleaned);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+  const sig = await keypair.sign(new TextEncoder().encode(data));
+  // Secp256k1Keypair.sign returns 64-byte compact (r||s), which matches JWS ECDSA encoding
+  return sig as Uint8Array;
 }
 
 const FORWARDED_HEADERS = [
@@ -342,6 +396,18 @@ const FORWARDED_HEADERS = [
   'user-agent',
 ];
 
+// Endpoints where we benefit from read-after-write behavior.
+// When the viewer just posted, conditional headers can cause 304s that hide
+// the fresh content. Upstream PDS handles RAW merging; we "nudge" freshness by
+// dropping conditionals for the viewer's own requests.
+const RAW_SENSITIVE_METHODS = new Set<string>([
+  'app.bsky.unspecced.getPostThreadV2',
+  'app.bsky.feed.getFeed',
+  'app.bsky.feed.getPosts',
+  'app.bsky.feed.getTimeline',
+  'app.bsky.feed.getAuthorFeed',
+]);
+
 export interface ProxyAppViewOptions {
   request: Request;
   env: Env;
@@ -351,12 +417,15 @@ export interface ProxyAppViewOptions {
 
 export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppViewOptions): Promise<Response> {
   console.log('proxyAppView called:', { lxm, url: request.url });
-
-  const config = getAppViewConfig(env);
-  if (!config) {
-    console.log('proxyAppView: No appview config, using fallback');
-    return fallback ? await fallback() : new Response('AppView not configured', { status: 501 });
+  // Build service registry and pick default for this NSID
+  let registry: Record<ServiceId, ServiceConfig>;
+  try {
+    registry = getServiceRegistry(env);
+  } catch (e) {
+    console.log('proxyAppView: No service config, using fallback');
+    return fallback ? await fallback() : new Response('Services not configured', { status: 501 });
   }
+  const defaultService = defaultServiceForNsid(env, lxm);
 
   // Emergency kill-switch: allow deployments to bypass AppView entirely
   // while service-auth/DID alignment is being verified.
@@ -365,7 +434,7 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
     if (fallback) return fallback();
   }
 
-  console.log('proxyAppView: AppView config found:', { url: config.url, did: config.did });
+  console.log('proxyAppView: Selected service for method:', { lxm, serviceId: defaultService.id, url: defaultService.url, did: defaultService.did });
 
   const auth = await authenticateRequest(request, env);
   if (!auth) {
@@ -411,12 +480,14 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
     });
   }
 
-  let target: ProxyTarget = { did: config.did, url: config.url };
+  // Do not short-circuit to fallback; exercise upstream so we can surface real errors
+
+  let target: ProxyTarget = { did: defaultService.did, url: defaultService.url };
   const proxyHeader = request.headers.get('atproto-proxy');
   if (proxyHeader) {
     console.log('proxyAppView: Resolving proxy header:', proxyHeader);
     try {
-      target = await resolveProxyTarget(env, proxyHeader, config);
+      target = await resolveProxyTargetWithRegistry(env, proxyHeader, registry);
     } catch (error) {
       console.error('AppView proxy header error:', error);
       const isHeaderError = error instanceof ProxyHeaderError;
@@ -444,10 +515,22 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
     if (value) headers.set(header, value);
   }
 
-  let serviceJwt: string;
+  // Strip conditional headers for RAW-sensitive methods when the viewer is the issuer
+  // This avoids immediate 304s right after a successful write.
+  if (RAW_SENSITIVE_METHODS.has(lxm)) {
+    try {
+      const viewerDid = auth.claims.sub || '';
+      if (viewerDid && viewerDid.startsWith('did:')) {
+        headers.delete('if-none-match');
+        headers.delete('if-modified-since');
+      }
+    } catch {}
+  }
+
+  let serviceJwt: string | null = null;
   try {
-    // Use the viewer's DID (subject) as the issuer for service auth,
-    // matching AppView expectations for standard requests.
+    // Issuer is the authenticated DID (like upstream PDS). In single-user mode,
+    // this should equal the DID whose signing key we hold.
     const issuerDid = auth.claims.sub;
     if (!issuerDid || !issuerDid.startsWith('did:')) {
       throw new Error(`Invalid issuer DID: ${issuerDid || '(empty)'}`);
@@ -457,17 +540,12 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
     console.log('proxyAppView: Service JWT created successfully');
   } catch (error) {
     console.error('AppView service token error:', error);
-    if (fallback) {
-      console.log('proxyAppView: Using fallback due to JWT error');
-      return fallback();
-    }
-    return new Response(JSON.stringify({ error: 'ServiceAuthUnavailable' }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // For public endpoints, we can proceed without Authorization; for private ones,
+    // upstream will return 401. This surfaces real upstream behavior for debugging.
+    serviceJwt = null;
   }
 
-  headers.set('authorization', `Bearer ${serviceJwt}`);
+  if (serviceJwt) headers.set('authorization', `Bearer ${serviceJwt}`);
 
   const method = request.method.toUpperCase();
   if (method !== 'GET' && method !== 'HEAD' && method !== 'POST') {
@@ -506,12 +584,6 @@ export async function proxyAppView({ request, env, lxm, fallback }: ProxyAppView
     console.log('proxyAppView: Fetching upstream');
     const upstream = await fetch(upstreamUrl.toString(), init);
     console.log('proxyAppView: Upstream response:', { status: upstream.status, statusText: upstream.statusText });
-
-    // Use fallback if AppView returns 404 (not indexed) or 401 (key mismatch/approval pending)
-    if ((upstream.status === 404 || upstream.status === 401) && fallback) {
-      console.log('proxyAppView: AppView returned', upstream.status, ', using fallback');
-      return fallback();
-    }
 
     const responseHeaders = new Headers(upstream.headers);
     return new Response(upstream.body, {

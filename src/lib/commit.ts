@@ -47,7 +47,7 @@ export function createCommit(
 }
 
 /**
- * Sign a commit with Ed25519 private key
+ * Sign a commit with secp256k1 private key
  */
 export async function signCommit(
   commit: CommitData,

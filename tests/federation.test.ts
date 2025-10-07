@@ -32,7 +32,7 @@ describe('Federation Tests', () => {
 
   test('Commit signature validation', async () => {
     // TODO: Fetch commits from test PDS
-    // TODO: Verify Ed25519 signatures
+    // TODO: Verify secp256k1 signatures
     // TODO: Test signature verification fails for invalid sigs
     expect(true).toBe(true);
   });

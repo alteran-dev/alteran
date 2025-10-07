@@ -10,8 +10,6 @@ const SECRET_KEYS = [
   "REFRESH_TOKEN_SECRET",
   "SESSION_JWT_SECRET",
   "REPO_SIGNING_KEY",
-  "REPO_SIGNING_KEY_PUBLIC",
-  "REPO_COMMIT_SIGNING_KEY",
   "PDS_PLC_ROTATION_KEY",
 ] as const satisfies readonly (keyof Env)[];
 

@@ -21,40 +21,30 @@ export async function GET({ locals, request }: APIContext) {
     const handle = (await resolveSecret(env.PDS_HANDLE)) ?? 'example.com';
     const hostname = env.PDS_HOSTNAME ?? handle;
 
-    // We must advertise the exact Ed25519 public key that will sign service-auth.
-    // Prefer REPO_SIGNING_KEY_PUBLIC (raw 32-byte base64). This avoids brittle PKCS#8 parsing.
-    const pubRawB64 = await resolveSecret((env as any).REPO_SIGNING_KEY_PUBLIC);
+    // Always ES256K: derive did:key from the secp256k1 signing key
     let didKey: string | undefined;
-    if (pubRawB64 && typeof pubRawB64 === 'string') {
-      const cleaned = pubRawB64.replace(/\s+/g, '');
-      try {
-        const bin = atob(cleaned);
-        const raw = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) raw[i] = bin.charCodeAt(i);
-        if (raw.byteLength !== 32) {
-          throw new Error(`REPO_SIGNING_KEY_PUBLIC must be 32 bytes (got ${raw.byteLength})`);
-        }
-        const prefixed = new Uint8Array(2 + raw.byteLength);
-        prefixed[0] = 0xed; // Ed25519 multicodec prefix
-        prefixed[1] = 0x01;
-        prefixed.set(raw, 2);
-        didKey = 'did:key:z' + uint8arrays.toString(prefixed, 'base58btc');
-      } catch (e) {
-        return new Response(
-          JSON.stringify({ error: 'InvalidRequest', message: 'Invalid REPO_SIGNING_KEY_PUBLIC (expected raw 32-byte base64)' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-    }
-
-    if (!didKey) {
-      // Fallback: require REPO_SIGNING_KEY_PUBLIC to be set explicitly.
-      // Deriving from PKCS#8 is unreliable across encoders; failing early is safer.
+    const priv = (await resolveSecret((env as any).REPO_SIGNING_KEY))?.trim();
+    if (!priv) {
       return new Response(
-        JSON.stringify({
-          error: 'InvalidRequest',
-          message: 'REPO_SIGNING_KEY_PUBLIC not configured. Set raw 32-byte Ed25519 public key (base64).',
-        }),
+        JSON.stringify({ error: 'InvalidRequest', message: 'REPO_SIGNING_KEY not configured for ES256K' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    try {
+      const { Secp256k1Keypair } = await import('@atproto/crypto');
+      let kp: any;
+      if (/^[0-9a-fA-F]{64}$/.test(priv)) {
+        kp = await Secp256k1Keypair.import(priv);
+      } else {
+        const bin = atob(priv.replace(/\s+/g, ''));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        kp = await Secp256k1Keypair.import(bytes);
+      }
+      didKey = kp.did();
+    } catch (e) {
+      return new Response(
+        JSON.stringify({ error: 'InvalidRequest', message: 'Failed to derive secp256k1 did:key from REPO_SIGNING_KEY' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
     }

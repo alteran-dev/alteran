@@ -123,7 +123,7 @@ export async function appendCommit(env: Env, cid: string, rev: string, data: str
 let cachedDevSigningKey: string | undefined;
 
 async function getSigningKey(env: Env): Promise<string> {
-  const configured = await resolveSecret((env as any).REPO_COMMIT_SIGNING_KEY);
+  const configured = await resolveSecret((env as any).REPO_SIGNING_KEY);
   if (configured && configured.trim() !== '') return configured.trim();
 
   const envName = (env as any).ENVIRONMENT || 'development';
@@ -140,5 +140,5 @@ async function getSigningKey(env: Env): Promise<string> {
     return cachedDevSigningKey;
   }
 
-  throw new Error('REPO_COMMIT_SIGNING_KEY not configured');
+  throw new Error('REPO_SIGNING_KEY not configured');
 }

@@ -32,13 +32,8 @@ declare global {
     SESSION_JWT_SECRET?: string | SecretsStoreSecret;
     PDS_ACCESS_TTL_SEC?: string;
     PDS_REFRESH_TTL_SEC?: string;
-    JWT_ALGORITHM?: string;
-    // Ed25519 service-auth signing private key (PKCS#8 base64)
+    // secp256k1 signing private key (hex or base64 32 bytes) used for commits and service-auth
     REPO_SIGNING_KEY?: string | SecretsStoreSecret;
-    // Raw Ed25519 public key (base64) for did:web verification (optional)
-    REPO_SIGNING_KEY_PUBLIC?: string | SecretsStoreSecret;
-    // secp256k1 repository commit signing private key (hex or base64 32 bytes)
-    REPO_COMMIT_SIGNING_KEY?: string | SecretsStoreSecret;
     PDS_PLC_ROTATION_KEY?: string | SecretsStoreSecret;
     PDS_RATE_LIMIT_PER_MIN?: string;
     PDS_MAX_JSON_BYTES?: string;

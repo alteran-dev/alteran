@@ -6,6 +6,7 @@ import { isAuthorized, unauthorized } from '../../lib/auth';
 import { isAccountActive } from '../../db/dal';
 import { checkRate } from '../../lib/ratelimit';
 import { notifySequencer } from '../../lib/sequencer';
+import { putRecord as dalPutRecord } from '../../db/dal';
 
 export const prerender = false;
 
@@ -45,6 +46,7 @@ export async function POST({ locals, request }: APIContext) {
     }
 
     const repoManager = new RepoManager(env);
+    const pdsDid = env.PDS_DID ?? 'did:example:single-user';
     const results = [];
 
     // Apply all writes atomically
@@ -53,6 +55,13 @@ export async function POST({ locals, request }: APIContext) {
 
       if ($type === 'com.atproto.repo.applyWrites#create') {
         const { mst, recordCid } = await repoManager.addRecord(collection, rkey, value);
+        // Persist JSON for local reads
+        await dalPutRecord(env, {
+          uri: `at://${pdsDid}/${collection}/${rkey}`,
+          did: pdsDid,
+          cid: recordCid.toString(),
+          json: JSON.stringify(value),
+        } as any);
         results.push({
           $type: 'com.atproto.repo.applyWrites#createResult',
           uri: `at://${repo}/${collection}/${rkey}`,
@@ -61,6 +70,12 @@ export async function POST({ locals, request }: APIContext) {
         });
       } else if ($type === 'com.atproto.repo.applyWrites#update') {
         const { mst, recordCid } = await repoManager.updateRecord(collection, rkey, value);
+        await dalPutRecord(env, {
+          uri: `at://${pdsDid}/${collection}/${rkey}`,
+          did: pdsDid,
+          cid: recordCid.toString(),
+          json: JSON.stringify(value),
+        } as any);
         results.push({
           $type: 'com.atproto.repo.applyWrites#updateResult',
           uri: `at://${repo}/${collection}/${rkey}`,

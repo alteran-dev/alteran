@@ -77,7 +77,7 @@ Secret rotation is a critical security practice. This guide covers rotation proc
 
 1. **Generate new signing key**:
    ```bash
-   bun run scripts/generate-signing-key.ts
+   # Generate a new secp256k1 key as needed via your preferred tooling
    ```
 
 2. **Backup current repository**:

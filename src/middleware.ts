@@ -1,4 +1,4 @@
-import { defineMiddleware, sequence } from 'astro:middleware';
+import { defineMiddleware, sequence } from 'astro/middleware';
 
 const cors = defineMiddleware(async ({ locals, request }, next) => {
   // Match atproto CORS implementation: use wildcard for public endpoints

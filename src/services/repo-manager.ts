@@ -18,12 +18,9 @@ import { resolveSecret } from '../lib/secrets';
  */
 export class RepoManager {
   private blockstore: D1Blockstore;
-  private did: string;
 
   constructor(private env: Env) {
     this.blockstore = new D1Blockstore(env);
-    // Note: this.did will be set asynchronously, but it's only used in async methods
-    this.did = 'did:example:single-user'; // Default, will be resolved in async methods
   }
 
   private async getDid(): Promise<string> {
@@ -35,10 +32,11 @@ export class RepoManager {
    */
   async getRoot(): Promise<MST | null> {
     const db = drizzle(this.env.DB);
+    const did = await this.getDid();
     const row = await db
       .select()
       .from(repo_root)
-      .where(eq(repo_root.did, this.did))
+      .where(eq(repo_root.did, did))
       .get();
 
     if (!row || !row.commitCid) return null;
@@ -106,8 +104,9 @@ export class RepoManager {
     const { mst, recordCid, prevMstRoot } = await this.addRecord(collection, key, record);
 
     // Persist JSON to table for easy reads
-    const uri = `at://${this.did}/${collection}/${key}`;
-    await dalPutRecord(this.env, { uri, did: this.did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
+    const did = await this.getDid();
+    const uri = `at://${did}/${collection}/${key}`;
+    await dalPutRecord(this.env, { uri, did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
 
     // Update repo root with signed commit and extract ops
     const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);
@@ -155,8 +154,9 @@ export class RepoManager {
     blocks: string;
   }> {
     const { mst, recordCid, prevMstRoot } = await this.updateRecord(collection, rkey, record);
-    const uri = `at://${this.did}/${collection}/${rkey}`;
-    await dalPutRecord(this.env, { uri, did: this.did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
+    const did = await this.getDid();
+    const uri = `at://${did}/${collection}/${rkey}`;
+    await dalPutRecord(this.env, { uri, did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
     const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);
     return { uri, cid: recordCid.toString(), commitCid, rev, ops, commitData, sig, blocks };
   }
@@ -186,7 +186,8 @@ export class RepoManager {
     await this.storeMstBlocks(newMst);
 
     // Delete from records table
-    const uri = `at://${this.did}/${collection}/${rkey}`;
+    const did = await this.getDid();
+    const uri = `at://${did}/${collection}/${rkey}`;
     await dalDeleteRecord(this.env, uri);
 
     const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);

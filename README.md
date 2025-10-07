@@ -111,15 +111,15 @@ This project uses Drizzle Kit for database schema management and migrations.
 ### Migration Workflow
 
 1. **Modify Schema**: Edit [`src/db/schema.ts`](src/db/schema.ts:1) to add/modify tables or indexes
-2. **Generate Migration**: Run `bun run db:generate` to create a new migration file in `drizzle/`
-3. **Review Migration**: Check the generated SQL in `drizzle/XXXX_*.sql`
+2. **Generate Migration**: Run `bun run db:generate` to create a new migration file in `migrations/`
+3. **Review Migration**: Check the generated SQL in `migrations/XXXX_*.sql`
 4. **Apply Locally**: Run `bun run db:apply:local` to apply to local D1 database
 5. **Apply to Production**: Run `wrangler d1 migrations apply pds --remote` after deployment
 
 ### Migration Versioning
 
 - Migrations are versioned sequentially (0000, 0001, 0002, etc.)
-- Each migration is tracked in `drizzle/meta/_journal.json`
+- Each migration is tracked in `migrations/meta/_journal.json`
 - Migrations are applied in order and cannot be skipped
 - Applied migrations are recorded in D1's `_cf_KV` table
 
@@ -181,9 +181,7 @@ Set these secrets for each environment using `wrangler secret put <NAME> --env <
 | `USER_PASSWORD` | Login password | Strong password |
 | `ACCESS_TOKEN` | JWT access token secret | Random 32+ char string |
 | `REFRESH_TOKEN` | JWT refresh token secret | Random 32+ char string |
-| `REPO_COMMIT_SIGNING_KEY` | secp256k1 commit signing key (hex, 64 chars) | From `scripts/setup-secrets.ts` |
-| `REPO_SIGNING_KEY` | Ed25519 service-auth signing key (base64 PKCS#8) | From `scripts/generate-signing-key.ts` |
-| `REPO_SIGNING_KEY_PUBLIC` | Ed25519 public key (raw base64) | From `scripts/generate-signing-key.ts` |
+| `REPO_SIGNING_KEY` | secp256k1 signing key (hex or base64 32 bytes). Used for commits and service-auth | From `scripts/setup-secrets.ts` |
 
 **Generate secrets:**
 ```bash
@@ -191,18 +189,13 @@ Set these secrets for each environment using `wrangler secret put <NAME> --env <
 # Generates all required secrets and prints wrangler commands
 bun run scripts/setup-secrets.ts --env production --did did:web:example.com --handle user.example.com
 
-# Or generate only the repo signing key
-bun run scripts/generate-signing-key.ts
-
 # After generation, set secrets (example for production)
 wrangler secret put PDS_DID --env production
 wrangler secret put PDS_HANDLE --env production
 wrangler secret put USER_PASSWORD --env production
 wrangler secret put ACCESS_TOKEN --env production
 wrangler secret put REFRESH_TOKEN --env production
-wrangler secret put REPO_COMMIT_SIGNING_KEY --env production
 wrangler secret put REPO_SIGNING_KEY --env production
-wrangler secret put REPO_SIGNING_KEY_PUBLIC --env production
 ```
 
 ### Using Cloudflare Secret Store (optional)
@@ -360,17 +353,14 @@ This PDS now implements full AT Protocol core compliance with:
 # Recommended: bootstrap all secrets (prints wrangler commands)
 bun run scripts/setup-secrets.ts --env production --did did:web:example.com --handle user.example.com
 
-# Alternative: generate only the repo signing key
-bun run scripts/generate-signing-key.ts
+# Alternatively, supply your own secp256k1 key (32‑byte hex/base64)
 ```
 
 ### 2. Configure Secrets
 
 **Required Secrets:**
 ```bash
-wrangler secret put REPO_COMMIT_SIGNING_KEY  # secp256k1 (from setup-secrets)
-wrangler secret put REPO_SIGNING_KEY         # Ed25519 (from generate-signing-key)
-wrangler secret put REPO_SIGNING_KEY_PUBLIC  # Ed25519 raw public (from generate-signing-key)
+wrangler secret put REPO_SIGNING_KEY         # secp256k1 (from setup-secrets)
 wrangler secret put PDS_DID                  # Your DID
 wrangler secret put PDS_HANDLE               # Your handle
 wrangler secret put USER_PASSWORD            # Login password
@@ -382,9 +372,7 @@ wrangler secret put REFRESH_TOKEN_SECRET
 ```env
 PDS_DID=did:plc:your-did-here
 PDS_HANDLE=your-handle.bsky.social
-REPO_COMMIT_SIGNING_KEY=<hex-secp256k1-private-key>
-REPO_SIGNING_KEY=<base64-pkcs8-ed25519>
-REPO_SIGNING_KEY_PUBLIC=<base64-raw-ed25519-public>
+REPO_SIGNING_KEY=<hex-secp256k1-private-key>
 USER_PASSWORD=your-password
 REFRESH_TOKEN=your-access-secret
 REFRESH_TOKEN_SECRET=your-refresh-secret
@@ -460,7 +448,7 @@ curl "http://localhost:4321/xrpc/com.atproto.repo.listRecords?repo=did:example:s
 - [`PROGRESS.md`](PROGRESS.md) - Development progress notes
 
 Repo signing key (REQUIRED)
-- Generate an Ed25519 signing key: `bun run scripts/generate-signing-key.ts`
+  
 - Store as `REPO_SIGNING_KEY` secret (base64-encoded private key)
 
 ## P1 Implementation - Production Readiness 🚀
@@ -472,7 +460,7 @@ This PDS now includes production-grade features for security, observability, and
 - ✅ **Token rotation** on every refresh
 - ✅ **Automatic token cleanup** (lazy cleanup on 1% of requests)
 - ✅ **Account lockout** after 5 failed login attempts (15-minute lockout)
-- ✅ **EdDSA (Ed25519) JWT signing** support (in addition to HS256)
+  
 - ✅ **Proper JWT claims**: `sub`, `aud`, `iat`, `exp`, `jti`, `scope`
 - ✅ **Production CORS validation** (no wildcard in production)
 
@@ -492,15 +480,11 @@ This PDS now includes production-grade features for security, observability, and
 
 **JWT Configuration:**
 ```bash
-# Algorithm selection (HS256 or EdDSA)
+# Service-auth uses ES256K (secp256k1) exclusively
 PDS_HOSTNAME=your-pds.example.com
 PDS_ACCESS_TTL_SEC=3600          # 1 hour
 PDS_REFRESH_TTL_SEC=2592000      # 30 days
-JWT_ALGORITHM=HS256              # or EdDSA
-
-# For EdDSA (optional)
-JWT_ED25519_PRIVATE_KEY=<base64-encoded-key>
-JWT_ED25519_PUBLIC_KEY=<base64-encoded-key>
+# No JWT_ALGORITHM flag; ES256K is always used for AppView service tokens
 ```
 
 **CORS Configuration:**
@@ -562,7 +546,7 @@ Returns `503` if any dependency is unhealthy.
 
 1. **Never use wildcard CORS in production** - Set explicit origins in `PDS_CORS_ORIGIN`
 2. **Use strong secrets** - Generate cryptographically secure values for all secrets
-3. **Enable EdDSA signing** - More secure than HS256 for production
+3. **Use ES256K (secp256k1) signing**
 4. **Monitor failed login attempts** - Check logs for suspicious activity
 5. **Set appropriate token TTLs** - Balance security and user experience
 

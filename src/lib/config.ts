@@ -20,9 +20,14 @@ const OPTIONAL_VARS = {
   PDS_CORS_ORIGIN: '*',
   PDS_SEQ_WINDOW: '512',
   ENVIRONMENT: 'development',
-  PDS_BSKY_APP_VIEW_URL: 'https://public.api.bsky.app',
+  PDS_BSKY_APP_VIEW_URL: 'https://api.bsky.app',
   PDS_BSKY_APP_VIEW_DID: 'did:web:api.bsky.app',
   PDS_BSKY_APP_VIEW_CDN_URL_PATTERN: '',
+  // Additional proxied services
+  PDS_BSKY_CHAT_URL: 'https://api.bsky.chat',
+  PDS_BSKY_CHAT_DID: 'did:web:api.bsky.chat',
+  PDS_OZONE_URL: 'https://mod.bsky.app',
+  PDS_OZONE_DID: 'did:plc:ar7c4by46qjdydhdevvrndac',
 } as const;
 
 /**
@@ -108,7 +113,7 @@ export function validateConfig(env: Env): ConfigValidationResult {
     warnings.push('REPO_SIGNING_KEY is not set - repository commits will not be signed');
   }
 
-  // Service-auth now uses REPO_SIGNING_KEY (Ed25519). No separate service key required.
+  // Service-auth uses REPO_SIGNING_KEY (secp256k1). No separate service key required.
 
   const valid = missing.length === 0;
 

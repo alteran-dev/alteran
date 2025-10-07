@@ -81,20 +81,9 @@ export default defineConfig({
         access: "secret",
         optional: true,
       }),
-      JWT_ALGORITHM: envField.string({
-        context: "server",
-        access: "secret",
-        default: "HS256",
-        optional: true,
-      }),
       REPO_SIGNING_KEY: envField.string({
         context: "server",
         access: "secret",
-        optional: true,
-      }),
-      REPO_SIGNING_PUBLIC_KEY: envField.string({
-        context: "server",
-        access: "public",
         optional: true,
       }),
     },

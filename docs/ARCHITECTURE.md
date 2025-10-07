@@ -37,7 +37,7 @@ This PDS is built specifically for Cloudflare Workers, leveraging Cloudflare's e
 │  │            Core Services                              │   │
 │  │  • RepoManager (MST operations)                       │   │
 │  │  • CAR Builder (export)                               │   │
-│  │  • Commit Signing (Ed25519)                           │   │
+│  │  • Commit Signing (secp256k1)                         │   │
 │  │  • Blob Management                                    │   │
 │  └───────────────────────────────────────────────────────┘   │
 └────────────┬──────────────────┬──────────────┬──────────────┘
@@ -118,7 +118,7 @@ Key features:
 **File**: [`src/lib/commit.ts`](../src/lib/commit.ts:1)
 
 Handles repository commits:
-- Ed25519 signature generation
+- secp256k1 signature generation
 - AT Protocol v3 commit structure
 - TID-based revisions
 - Commit chain tracking
@@ -189,7 +189,7 @@ Database operations:
 **File**: [`src/lib/auth.ts`](../src/lib/auth.ts:1)
 
 JWT-based authentication:
-- HS256 or EdDSA signing
+- HS256 signing
 - Access tokens (1 hour TTL)
 - Refresh tokens (30 day TTL)
 - Single-use refresh tokens
@@ -243,7 +243,7 @@ Service health monitoring:
    c. Serialize MST to blocks
    d. Store blocks in D1 blockstore
    e. Create commit object
-   f. Sign commit with Ed25519
+   f. Sign commit with secp256k1
    g. Store commit in commit_log
    h. Update repo_root
    ↓

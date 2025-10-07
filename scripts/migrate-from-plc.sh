@@ -448,10 +448,8 @@ request_and_submit_plc_operation() {
     msg=$(cat "$body")
     err "getRecommendedDidCredentials failed (HTTP $code): $msg"
     if echo "$msg" | grep -qi 'Signing key not configured'; then
-      log "HINT: Set REPO_SIGNING_KEY in your Worker secrets (base64 PKCS#8 Ed25519)."
-      log "      Generate with: bun run scripts/generate-signing-key.ts"
+      log "HINT: Set REPO_SIGNING_KEY in your Worker secrets (secp256k1 private key in hex or base64)."
       log "      Then: wrangler secret put REPO_SIGNING_KEY --env production"
-      log "      Optional (did.json support): wrangler secret put REPO_SIGNING_KEY_PUBLIC --env production"
     fi
     return 1
   fi
@@ -460,7 +458,7 @@ request_and_submit_plc_operation() {
   local recommended
   recommended=$(cat "$body")
 
-  # Sanity: ensure recommended atproto key comes from our REPO_SIGNING_KEY (Ed25519 did:key)
+  # Sanity: ensure recommended atproto key comes from our REPO_SIGNING_KEY (secp256k1 did:key)
   local rec_atproto
   rec_atproto=$(echo "$recommended" | jq -r '.verificationMethods.atproto // empty')
   if [[ -z "$rec_atproto" ]]; then
@@ -469,8 +467,8 @@ request_and_submit_plc_operation() {
     return 1
   fi
   log "Using atproto verification method from NEW (derived from REPO_SIGNING_KEY): $rec_atproto"
-  # Optional: warn if it doesn't look like Ed25519 did:key (z6Mk…)
-  if ! echo "$rec_atproto" | grep -q '^did:key:z'; then
+  # Optional: basic format check for did:key
+  if ! echo "$rec_atproto" | grep -q '^did:key:'; then
     log "WARN: atproto did:key does not look like a did:key URI: $rec_atproto"
   fi
 

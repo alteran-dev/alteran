@@ -1,6 +1,5 @@
 import type { APIContext } from 'astro';
 import { withCache, CACHE_CONFIGS } from '../../lib/cache';
-import { base58btc } from 'multiformats/bases/base58';
 import { resolveSecret } from '../../lib/secrets';
 import { Secp256k1Keypair } from '@atproto/crypto';
 import { formatMultikey } from '@atproto/crypto/dist/did';
@@ -18,34 +17,22 @@ export async function GET({ locals, request }: APIContext) {
       const hostname = env.PDS_HOSTNAME ?? new URL(request.url).hostname;
 
       let publicKeyMultibase: string | undefined;
-
-      const serviceKeyHex = await resolveSecret(env.PDS_SERVICE_SIGNING_KEY_HEX as any);
-      if (serviceKeyHex) {
+      const signingKey = await resolveSecret((env as any).REPO_SIGNING_KEY);
+      if (signingKey) {
         try {
-          const keypair = await Secp256k1Keypair.import(serviceKeyHex.trim());
-          publicKeyMultibase = formatMultikey(keypair.jwtAlg, keypair.publicKeyBytes());
-        } catch (error) {
-          console.warn('Failed to encode service signing key', error);
-        }
-      }
-
-      if (!publicKeyMultibase) {
-        const repoPubKeyB64 = await resolveSecret((env as any).REPO_SIGNING_KEY_PUBLIC);
-        if (repoPubKeyB64) {
-          try {
-            const bin = atob(repoPubKeyB64.replace(/\s+/g, ''));
-            const raw = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) raw[i] = bin.charCodeAt(i);
-            if (raw.byteLength === 32) {
-              const prefixed = new Uint8Array(2 + raw.byteLength);
-              prefixed[0] = 0xed;
-              prefixed[1] = 0x01;
-              prefixed.set(raw, 2);
-              publicKeyMultibase = base58btc.encode(prefixed);
-            }
-          } catch (error) {
-            console.warn('Failed to encode repo signing key', error);
+          const cleaned = signingKey.trim();
+          let kp: Secp256k1Keypair;
+          if (/^[0-9a-fA-F]{64}$/.test(cleaned)) {
+            kp = await Secp256k1Keypair.import(cleaned);
+          } else {
+            const bin = atob(cleaned.replace(/\s+/g, ''));
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            kp = await Secp256k1Keypair.import(bytes);
           }
+          publicKeyMultibase = formatMultikey(kp.jwtAlg, kp.publicKeyBytes());
+        } catch (error) {
+          console.warn('Failed to encode REPO_SIGNING_KEY', error);
         }
       }
 
@@ -86,4 +73,3 @@ export async function GET({ locals, request }: APIContext) {
     CACHE_CONFIGS.DID_DOCUMENT,
   );
 }
-

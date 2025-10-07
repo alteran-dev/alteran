@@ -36,10 +36,7 @@ Before starting migration, ensure these environment variables are set:
 - `USER_PASSWORD` - Password for authentication
 - `REFRESH_TOKEN` - JWT access token secret
 - `REFRESH_TOKEN_SECRET` - JWT refresh token secret
-- `REPO_SIGNING_KEY` - Repository signing key (PKCS#8 base64)
-- `REPO_SIGNING_KEY_PUBLIC` - Public signing key (base64)
-- `JWT_ED25519_PRIVATE_KEY` - EdDSA JWT private key
-- `JWT_ED25519_PUBLIC_KEY` - EdDSA JWT public key
+- `REPO_SIGNING_KEY` - secp256k1 signing key (hex or base64 32 bytes)
 
 ### Verify Deployment
 

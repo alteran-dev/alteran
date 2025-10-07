@@ -54,19 +54,7 @@ async function generateRepoSigning(): Promise<{
   return { privateKeyHex, didKey: kp.did() };
 }
 
-async function generateServiceSigningEd25519(): Promise<{
-  privateKeyB64: string;
-  publicRawB64: string;
-}> {
-  const kp = await crypto.subtle.generateKey(
-    { name: "Ed25519", namedCurve: "Ed25519" } as any,
-    true,
-    ["sign", "verify"],
-  );
-  const pkcs8 = await crypto.subtle.exportKey("pkcs8", kp.privateKey);
-  const raw = await crypto.subtle.exportKey("raw", kp.publicKey);
-  return { privateKeyB64: b64(new Uint8Array(pkcs8)), publicRawB64: b64(new Uint8Array(raw)) };
-}
+// ES256K is the default for service-auth; no separate Ed25519 generation needed.
 
 function printHeader(title: string) {
   const line = "=".repeat(Math.max(60, title.length + 10));
@@ -86,7 +74,6 @@ async function main() {
   const accessSecret = randomB64(32);
   const refreshSecret = randomB64(32);
   const repo = await generateRepoSigning();
-  const service = await generateServiceSigningEd25519();
 
   printHeader("Generated Secrets");
   console.log(`PDS_DID                 = ${did}`);
@@ -94,10 +81,8 @@ async function main() {
   console.log(`USER_PASSWORD           = ${password}`);
   console.log(`REFRESH_TOKEN     = ${accessSecret}`);
   console.log(`REFRESH_TOKEN_SECRET    = ${refreshSecret}`);
-  console.log(`REPO_COMMIT_SIGNING_KEY = <secp256k1 hex, hidden>`);
-  console.log(`REPO_COMMIT_DID         = ${repo.didKey}`);
-  console.log(`REPO_SIGNING_KEY        = <Ed25519 base64, hidden>`);
-  console.log(`REPO_SIGNING_KEY_PUBLIC = ${service.publicRawB64}`);
+  console.log(`REPO_SIGNING_KEY        = <secp256k1 hex, hidden>`);
+  console.log(`REPO_SIGNING_DID        = ${repo.didKey}`);
   console.log();
 
   printHeader(`Wrangler Commands (${env})`);
@@ -108,9 +93,7 @@ async function main() {
     `wrangler secret put USER_PASSWORD${envArg}`,
     `wrangler secret put REFRESH_TOKEN${envArg}`,
     `wrangler secret put REFRESH_TOKEN_SECRET${envArg}`,
-    `wrangler secret put REPO_COMMIT_SIGNING_KEY${envArg}`,
     `wrangler secret put REPO_SIGNING_KEY${envArg}`,
-    `wrangler secret put REPO_SIGNING_KEY_PUBLIC${envArg}`,
   ];
   console.log(cmds.join("\n"));
   console.log();
@@ -120,9 +103,7 @@ async function main() {
   console.log("  USER_PASSWORD:           " + password);
   console.log("  REFRESH_TOKEN:     " + accessSecret);
   console.log("  REFRESH_TOKEN_SECRET:    " + refreshSecret);
-  console.log("  REPO_COMMIT_SIGNING_KEY: " + repo.privateKeyHex);
-  console.log("  REPO_SIGNING_KEY:        " + service.privateKeyB64);
-  console.log("  REPO_SIGNING_KEY_PUBLIC: " + service.publicRawB64);
+  console.log("  REPO_SIGNING_KEY: " + repo.privateKeyHex);
 
   if (writeDevVars) {
     const target = path.resolve(".dev.vars");
@@ -137,9 +118,7 @@ async function main() {
           `USER_PASSWORD=${password}`,
           `REFRESH_TOKEN=${accessSecret}`,
           `REFRESH_TOKEN_SECRET=${refreshSecret}`,
-          `REPO_COMMIT_SIGNING_KEY=${repo.privateKeyHex}`,
-          `REPO_SIGNING_KEY=${service.privateKeyB64}`,
-          `REPO_SIGNING_KEY_PUBLIC=${service.publicRawB64}`,
+          `REPO_SIGNING_KEY=${repo.privateKeyHex}`,
           `PDS_CORS_ORIGIN=*`,
         ].join("\n") + "\n";
       writeFileSync(target, content, "utf8");
