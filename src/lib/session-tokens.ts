@@ -25,10 +25,8 @@ async function getJwtKey(env: Env): Promise<Uint8Array> {
 }
 
 async function getServiceDid(env: Env): Promise<string> {
-  const did = await getRuntimeString(env, 'PDS_DID', 'did:example:single-user');
-  if (!did) {
-    throw new Error('PDS_DID is not configured');
-  }
+  const did = await getRuntimeString(env, 'PDS_DID', '');
+  if (!did) throw new Error('PDS_DID is not configured');
   return did;
 }
 

@@ -32,6 +32,7 @@ YES_DEFAULT="false"
 POLL_SECS_DEFAULT="300"
 NO_POLL_DEFAULT="false"
 SKIP_BLOBS_DEFAULT="false"
+INFER_OLD_DEFAULT="false"
 
 log() { printf "[%s] %s\n" "$(date -Iseconds)" "$*"; }
 err() { printf "[ERROR] %s\n" "$*" >&2; }
@@ -82,6 +83,7 @@ while [[ $# -gt 0 ]]; do
     --poll-seconds) POLL_SECS="$2"; shift 2 ;;
     --no-poll) NO_POLL="true"; shift 1 ;;
     --skip-blobs) SKIP_BLOBS="true"; shift 1 ;;
+    --infer-old) INFER_OLD="true"; shift 1 ;;
     -h|--help) usage; exit 0 ;;
     *) err "Unknown arg: $1"; usage; exit 1 ;;
   esac
@@ -170,6 +172,26 @@ preflight() {
   if [[ "$did_wk" != "$DID" ]]; then
     err "PDS_DID mismatch: expected $DID, got $did_wk. Reconfigure Alteran and redeploy."
     exit 1
+  fi
+  # Detect current hosting provider from PLC. Only override OLD when --infer-old is set AND --old was not provided.
+  local plc_json curr_endpoint
+  plc_json=$(curl -fsS "https://plc.directory/$DID" || true)
+  if [[ -n "$plc_json" ]]; then
+    curr_endpoint=$(echo "$plc_json" | jq -r '((.service // []) | map(select(.type=="AtprotoPersonalDataServer")) | .[0].serviceEndpoint) // (.services.atproto_pds.endpoint // empty) // empty')
+    if [[ -n "$curr_endpoint" ]]; then
+      local norm_curr
+      norm_curr=$(normalize_url "$curr_endpoint")
+      local norm_old
+      norm_old=$(normalize_url "$OLD")
+      if [[ -z "$OLD" || "$norm_old" != "$norm_curr" ]]; then
+        if [[ "${INFER_OLD:-$INFER_OLD_DEFAULT}" == "true" && -z "$OLD" ]]; then
+          log "Detected current PLC host: $norm_curr (using as --old)"
+          OLD="$norm_curr"
+        else
+          log "Detected current PLC host: $norm_curr (keeping --old: ${OLD:-unset}). To use detected host, add --infer-old."
+        fi
+      fi
+    fi
   fi
   # Optional: handle resolution (warn only)
   local rh_code rh_body
@@ -423,21 +445,22 @@ verify_snapshot() {
 request_and_submit_plc_operation() {
   log "Step 1: Requesting 2FA token from old PDS"
   local code body
-  read -r code body < <(http_json POST "$OLD/xrpc/com.atproto.identity.requestPlcOperationSignature" \
-    -H "authorization: Bearer $OLD_ACCESS")
-
-  if [[ "$code" != "200" ]]; then
-    err "requestPlcOperationSignature failed (HTTP $code): $(cat "$body")"
-    log "Check your email for the 2FA token, or use Bluesky app to change hosting provider."
-    return 1
-  fi
-
-  log "Check your email for the PLC operation token"
-  local plc_token
-  read -r -p "Enter PLC token from email: " plc_token
-  if [[ -z "$plc_token" ]]; then
-    err "PLC token is required"
-    return 1
+  if [[ -z "${PLC_TOKEN:-}" ]]; then
+    read -r code body < <(http_json POST "$OLD/xrpc/com.atproto.identity.requestPlcOperationSignature" \
+      -H "authorization: Bearer $OLD_ACCESS")
+    if [[ "$code" != "200" ]]; then
+      err "requestPlcOperationSignature failed (HTTP $code): $(cat "$body")"
+      log "Check your email for the 2FA token, or use the app to change hosting."
+      return 1
+    fi
+    log "Check your email for the PLC operation token"
+    read -r -p "Enter PLC token from email: " PLC_TOKEN
+    if [[ -z "$PLC_TOKEN" ]]; then
+      err "PLC token is required"
+      return 1
+    fi
+  else
+    log "Using PLC token from --token"
   fi
 
   log "Step 2: Getting recommended credentials from new PDS"
@@ -472,11 +495,44 @@ request_and_submit_plc_operation() {
     log "WARN: atproto did:key does not look like a did:key URI: $rec_atproto"
   fi
 
+  # Preview: show current PLC multikey and the new target, ask for confirmation
+  local new_mkb
+  new_mkb="${rec_atproto#did:key:}"
+  local new_endpoint
+  new_endpoint=$(echo "$recommended" | jq -r '.services.atproto_pds.endpoint // empty')
+  local plc_json curr_mkb curr_endpoint
+  plc_json=$(curl -fsS "https://plc.directory/$DID" || true)
+  if [[ -n "$plc_json" ]]; then
+    curr_mkb=$(echo "$plc_json" | jq -r '.verificationMethod[]? | select(.id|endswith("#atproto")) | .publicKeyMultibase // empty')
+    curr_endpoint=$(echo "$plc_json" | jq -r '((.service // []) | map(select(.type=="AtprotoPersonalDataServer")) | .[0].serviceEndpoint) // (.services.atproto_pds.endpoint // empty) // empty')
+  fi
+
+  echo ""
+  echo "================ PLC Update Preview ================"
+  echo "DID:             $DID"
+  echo "Current multikey: ${curr_mkb:-unknown}"
+  echo "New multikey:     ${new_mkb:-unknown} (from $rec_atproto)"
+  echo "Current endpoint: ${curr_endpoint:-unknown}"
+  echo "New endpoint:     ${new_endpoint:-unknown}"
+  echo "===================================================="
+  echo ""
+
+  if [[ "${YES:-false}" != "true" ]]; then
+    local CONFIRM
+    read -r -p "Proceed to sign and submit this PLC update? Type 'yes' to continue: " CONFIRM
+    if [[ "$CONFIRM" != "yes" ]]; then
+      log "User aborted PLC update"
+      return 1
+    fi
+  else
+    log "--yes supplied; skipping PLC update confirmation"
+  fi
+
   log "Step 3: Having old PDS sign the operation with token"
   read -r code body < <(http_json POST "$OLD/xrpc/com.atproto.identity.signPlcOperation" \
     -H "authorization: Bearer $OLD_ACCESS" \
     -H "content-type: application/json" \
-    --data-binary "{\"token\":\"$plc_token\",\"rotationKeys\":$(echo "$recommended" | jq -c '.rotationKeys'),\"alsoKnownAs\":$(echo "$recommended" | jq -c '.alsoKnownAs'),\"verificationMethods\":$(echo "$recommended" | jq -c '.verificationMethods'),\"services\":$(echo "$recommended" | jq -c '.services')}")
+    --data-binary "{\"token\":\"$PLC_TOKEN\",\"rotationKeys\":$(echo "$recommended" | jq -c '.rotationKeys'),\"alsoKnownAs\":$(echo "$recommended" | jq -c '.alsoKnownAs'),\"verificationMethods\":$(echo "$recommended" | jq -c '.verificationMethods'),\"services\":$(echo "$recommended" | jq -c '.services')}")
 
   if [[ "$code" != "200" ]]; then
     err "signPlcOperation failed (HTTP $code): $(cat "$body")"
@@ -497,11 +553,27 @@ request_and_submit_plc_operation() {
     --data-binary "{\"operation\":$operation}")
 
   if [[ "$code" != "200" ]]; then
-    err "submitPlcOperation failed (HTTP $code): $(cat "$body")"
-    return 1
+    warn_msg="submitPlcOperation failed on NEW (HTTP $code): $(cat "$body")"
+    log "$warn_msg"
+    log "Falling back to direct PLC submission"
+    # Direct submit to PLC directory: POST https://plc.directory/<did> with the operation as JSON
+    local plc_code plc_body
+    read -r plc_code plc_body < <(http_json POST "https://plc.directory/$DID" \
+      -H "content-type: application/json" \
+      --data-binary "$operation")
+    if [[ "$plc_code" != "200" && "$plc_code" != "202" ]]; then
+      err "Direct PLC submit failed (HTTP $plc_code): $(cat "$plc_body")"
+      return 1
+    fi
+    echo "{\"fallback\":true,\"status\":$plc_code}" > "$WORKDIR/plc-response.json"
+    log "PLC operation submitted directly to plc.directory"
+    return 0
   fi
 
-  log "PLC operation submitted successfully"
+  # Persist successful PLC response for summary + troubleshooting
+  cp "$body" "$WORKDIR/plc-response.json" 2>/dev/null || true
+
+  log "PLC operation submitted successfully via NEW"
   return 0
 }
 

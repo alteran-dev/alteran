@@ -5,11 +5,11 @@ import { drizzle } from 'drizzle-orm/d1';
 import { commit_log } from '../db/schema';
 import { gt, eq, desc } from 'drizzle-orm';
 import {
-  createInfoFrame,
-  createCommitFrame,
-  createIdentityFrame,
-  createAccountFrame,
-  createErrorFrame,
+  encodeInfoFrame,
+  encodeCommitFrame,
+  encodeIdentityFrame,
+  encodeAccountFrame,
+  encodeSyncFrame,
   type CommitMessage,
   type RepoOp,
 } from '../lib/firehose/frames';
@@ -60,6 +60,8 @@ type SequencerEvent = CommitEvent | IdentityEvent | AccountEvent;
 export class Sequencer {
   private readonly state: DurableObjectState;
   private readonly env: Env & { PDS_SEQ_WINDOW?: string };
+  // NOTE: With hibernating WebSockets, do NOT rely on in-memory maps of clients.
+  // Use state.getWebSockets() to fetch currently-connected sockets when broadcasting.
   private readonly clients = new Map<string, Client>();
   private buffer: CommitEvent[] = [];
   private readonly db: D1Database;
@@ -73,11 +75,31 @@ export class Sequencer {
     this.db = env.DB;
     this.maxWindow = parseInt(env.PDS_SEQ_WINDOW || '512', 10);
 
-    // Initialize from storage
+    // Initialize from storage and align with DB max(seq).
+    // Guard storage access to avoid errors during code upgrades on old instances.
     this.state.blockConcurrencyWhile(async () => {
-      const stored = await this.state.storage.get<number>('nextSeq');
-      if (stored) {
-        this.nextSeq = stored;
+      let base = 0;
+      try {
+        base = (await this.state.storage.get<number>('nextSeq')) || 0;
+      } catch (e) {
+        // Storage may be unavailable on outdated instances; ignore and derive from DB
+      }
+      try {
+        const db = drizzle(this.db);
+        const last = await db
+          .select({ seq: commit_log.seq })
+          .from(commit_log)
+          .orderBy(desc(commit_log.seq))
+          .limit(1)
+          .get();
+        const dbNext = last?.seq ? Number(last.seq) + 1 : 1;
+        if (!base || dbNext > base) base = dbNext;
+      } catch {}
+      this.nextSeq = base > 0 ? base : 1;
+      try {
+        await this.state.storage.put('nextSeq', this.nextSeq);
+      } catch (e) {
+        // Ignore if storage unavailable on this instance
       }
     });
   }
@@ -94,6 +116,11 @@ export class Sequencer {
       } else if (url.pathname === '/account') {
         return this.handleAccountNotification(request);
       }
+    }
+
+    // Debug metrics endpoint for observability
+    if (request.method === 'GET' && url.pathname === '/metrics') {
+      return this.handleMetrics();
     }
 
     // Handle WebSocket upgrade for firehose subscription
@@ -120,6 +147,30 @@ export class Sequencer {
         blocks?: string; // base64-encoded CAR
       };
 
+      // Revive CIDs inside ops (JSON -> CID)
+      const reviveCid = (val: any): CID | null => {
+        try {
+          if (val == null) return null;
+          // If already a CID instance
+          const as = (CID as any).asCID?.(val);
+          if (as) return as as CID;
+          // If encoded as string
+          if (typeof val === 'string') return CID.parse(val);
+          // If dag-json style: { "/": "baf..." }
+          if (val && typeof val === 'object' && typeof val['/'] === 'string') return CID.parse(val['/']);
+        } catch {}
+        return null;
+      };
+
+      if (Array.isArray(body.ops)) {
+        body.ops = body.ops.map((op: any) => ({
+          action: op.action,
+          path: op.path,
+          cid: reviveCid(op.cid),
+          ...(op.prev != null ? { prev: reviveCid(op.prev) ?? undefined } : {}),
+        })) as any;
+      }
+
       // Helper: base64 to Uint8Array (workers-safe)
       const b64ToBytes = (b64: string): Uint8Array => {
         const bin = atob(b64);
@@ -128,33 +179,56 @@ export class Sequencer {
         return out;
       };
 
+      // Determine sequence for this commit based on DB, ensuring consistency with replay
+      const db = drizzle(this.db);
+      let seqForEvent: number | null = null;
+      let tsForEvent = Date.now();
+      try {
+        const row = await db
+          .select({ seq: commit_log.seq, rev: commit_log.rev, data: commit_log.data, sig: commit_log.sig, ts: commit_log.ts })
+          .from(commit_log)
+          .where(eq(commit_log.cid, body.commitCid))
+          .limit(1)
+          .get();
+        if (row && typeof row.seq === 'number') {
+          seqForEvent = row.seq;
+          // Keep event fields aligned with DB if present
+          body.rev = row.rev;
+          body.data = row.data;
+          body.sig = row.sig;
+          tsForEvent = row.ts ?? tsForEvent;
+        }
+      } catch {}
+
+      if (seqForEvent == null) {
+        // No row yet: assign nextSeq and insert minimal row for replay
+        seqForEvent = this.nextSeq++;
+        await this.state.storage.put('nextSeq', this.nextSeq);
+        try {
+          await db
+            .insert(commit_log)
+            .values({ seq: seqForEvent, cid: body.commitCid, rev: body.rev, data: body.data, sig: body.sig, ts: tsForEvent })
+            .run();
+        } catch (e) {
+          console.warn('commit_log insert failed:', e);
+        }
+      } else if (seqForEvent >= this.nextSeq) {
+        // Ensure counter advances beyond DB
+        this.nextSeq = seqForEvent + 1;
+        try { await this.state.storage.put('nextSeq', this.nextSeq); } catch {}
+      }
+
       const event: CommitEvent = {
-        seq: this.nextSeq++,
+        seq: seqForEvent,
         did: body.did,
         commitCid: body.commitCid,
         rev: body.rev,
         data: body.data,
         sig: body.sig,
-        ts: Date.now(),
+        ts: tsForEvent,
         ops: body.ops,
         blocks: body.blocks ? b64ToBytes(body.blocks) : undefined,
       };
-
-      // Persist sequence number
-      await this.state.storage.put('nextSeq', this.nextSeq);
-
-      // Update commit_log with assigned sequence for this commit (if row exists)
-      try {
-        const db = drizzle(this.db);
-        const res = await db.update(commit_log).set({ seq: event.seq }).where(eq(commit_log.cid, event.commitCid)).run();
-        // If the row didn't exist (unexpected), insert a minimal row so replay works
-        // Note: drizzle's run() returns a driver-specific result; we just best-effort insert
-        if ((res as any)?.success === false) {
-          await db.insert(commit_log).values({ seq: event.seq, cid: event.commitCid, rev: event.rev, data: event.data, sig: event.sig, ts: event.ts }).run();
-        }
-      } catch (e) {
-        console.warn('commit_log seq update failed:', e);
-      }
 
       // Add to buffer
       this.appendCommit(event);
@@ -187,7 +261,7 @@ export class Sequencer {
       };
 
       // Persist sequence number
-      await this.state.storage.put('nextSeq', this.nextSeq);
+      try { await this.state.storage.put('nextSeq', this.nextSeq); } catch {}
 
       // Broadcast to all connected clients
       await this.broadcastIdentity(event);
@@ -219,7 +293,7 @@ export class Sequencer {
       };
 
       // Persist sequence number
-      await this.state.storage.put('nextSeq', this.nextSeq);
+      try { await this.state.storage.put('nextSeq', this.nextSeq); } catch {}
 
       // Broadcast to all connected clients
       await this.broadcastAccount(event);
@@ -253,21 +327,39 @@ export class Sequencer {
 
     // Validate cursor
     if (cursor > this.nextSeq - 1) {
-      // Future cursor error — send a standard atproto error frame (header+body CBOR, no length prefix)
-      const err = createErrorFrame('FutureCursor', 'Cursor is ahead of current sequence').toBytes();
-      try {
-        server.send(err);
-      } catch {}
-      server.close(1008, 'FutureCursor');
+      // Future cursor requested: send an info event then close with 1008.
+      // Use standard WebSocket accept for this short-lived connection to avoid
+      // mixing hibernation API semantics.
+      try { (server as any).accept?.(); } catch {}
+      const info = encodeInfoFrame('OutdatedCursor', 'Cursor is ahead of current sequence');
+      try { server.send(info); } catch {}
+      try { server.close(1008, 'OutdatedCursor'); } catch {}
       const headers = new Headers();
       if (requestedProtocol) headers.set('Sec-WebSocket-Protocol', requestedProtocol);
       return new Response(null, { status: 101, webSocket: client, headers });
     }
 
-    // CRITICAL: Use Cloudflare's hibernatable WebSocket API
-    // This keeps the connection alive even after the response is returned
-    // Without this, the WebSocket closes immediately when the worker context ends
-    this.state.acceptWebSocket(server as any, [id, cursor.toString()]);
+    const hibernate = String((this.env as any).PDS_WS_HIBERNATE ?? 'true').toLowerCase() !== 'false';
+    if (hibernate) {
+      // Hibernation API
+      this.state.acceptWebSocket(server as any);
+      try { (server as any).serializeAttachment?.({ id, cursor }); } catch {}
+      // Do not send an initial info frame; many clients expect first frame to be a real event.
+    } else {
+      // Standard WebSocket API fallback (no hibernation)
+      (server as any).accept?.();
+      // Minimal event listeners to keep the connection alive and observable
+      (server as any).addEventListener?.('message', (evt: MessageEvent) => {
+        try {
+          const data = typeof evt.data === 'string' ? evt.data : new TextDecoder().decode(evt.data);
+          if (data === 'ping') (server as any).send?.('pong');
+        } catch {}
+      });
+      (server as any).addEventListener?.('close', (cls: any) => {
+        try { console.log(`Client ${id} disconnected (std): code=${cls.code} reason=${cls.reason}`); } catch {}
+      });
+      // Do not send an initial info frame.
+    }
 
     // Light-touch observability for upgrade events
     try {
@@ -285,21 +377,12 @@ export class Sequencer {
     } catch {}
 
     const clientObj: Client = { webSocket: server as unknown as WebSocket, id, cursor };
+    // Keep a best-effort in-memory record for same-isolate broadcasts.
+    // Actual broadcasts will query state.getWebSockets() to handle hibernation/resumes.
     this.clients.set(id, clientObj);
 
-    // Send #info frame on connection
-    const infoFrame = createInfoFrame('com.atproto.sync.subscribeRepos', 'Connected to PDS firehose');
-    try {
-      // Send pure CBOR header+body in a single WS message (no extra length prefix)
-      server.send(infoFrame.toBytes());
-    } catch (error) {
-      console.error('Failed to send info frame:', error);
-    }
-
-    // Replay buffered events if cursor provided
-    if (cursor > 0) {
-      await this.replayFromCursor(server as unknown as WebSocket, cursor);
-    }
+    // Do not send or replay yet; wait for webSocketOpen to ensure handshake completed.
+    // We'll send initial info and perform optional replay there.
 
     // Echo back the negotiated subprotocol if the client requested one.
     // Cloudflare will include standard Upgrade headers; we only add Sec-WebSocket-Protocol.
@@ -318,8 +401,8 @@ export class Sequencer {
     if (bufferedEvents.length > 0) {
       for (const event of bufferedEvents) {
         try {
-          const frame = await this.createCommitFrame(event);
-          ws.send(frame.toBytes());
+          const msg = await this.createCommitPayload(event);
+          ws.send(encodeCommitFrame(msg));
         } catch (error) {
           console.error('Failed to send buffered event:', error);
         }
@@ -347,8 +430,8 @@ export class Sequencer {
               sig: event.sig,
               ts: event.ts,
             };
-            const frame = await this.createCommitFrame(commitEvent);
-            ws.send(frame.toBytes());
+            const msg = await this.createCommitPayload(commitEvent);
+            ws.send(encodeCommitFrame(msg));
           } catch (error) {
             console.error('Failed to send database event:', error);
           }
@@ -363,58 +446,68 @@ export class Sequencer {
    * Broadcast commit event to all connected clients
    */
   private async broadcastCommit(event: CommitEvent): Promise<void> {
-    const frame = await this.createCommitFrame(event);
-    const bytes = frame.toBytes();
+    const msg = await this.createCommitPayload(event);
+    const bytes = encodeCommitFrame(msg);
 
-    const disconnected: string[] = [];
+    // Use hibernation-aware API to fetch sockets; do not rely on in-memory maps.
+    let sockets: WebSocket[] = [];
+    try {
+      // @ts-expect-error Cloudflare runtime provides getWebSockets at runtime
+      sockets = (this.state as any).getWebSockets?.() || [];
+    } catch {}
 
-    for (const [id, client] of Array.from(this.clients.entries())) {
+    try {
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          type: 'firehose_broadcast_start',
+          seq: event.seq,
+          clients: sockets.length || this.clients.size,
+          ops: (event.ops || []).length,
+          ts: new Date().toISOString(),
+        }),
+      );
+    } catch {}
+
+    const targets = sockets.length > 0 ? sockets : Array.from(this.clients.values()).map((c) => c.webSocket);
+    let dropped = 0;
+    for (const ws of targets) {
       try {
-        // Check if client's cursor is caught up
-        if (event.seq > client.cursor) {
-          client.webSocket.send(bytes);
-          client.cursor = event.seq;
-        }
+        ws.send(bytes);
       } catch (error) {
-        console.error(`Failed to send to client ${id}:`, error);
-        disconnected.push(id);
+        dropped++;
       }
     }
 
-    // Clean up disconnected clients
-    for (const id of disconnected) {
-      this.clients.delete(id);
-    }
+    try {
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          type: 'firehose_broadcast_end',
+          seq: event.seq,
+          clients: targets.length,
+          dropped,
+          ts: new Date().toISOString(),
+        }),
+      );
+    } catch {}
   }
 
   /**
    * Broadcast identity event to all connected clients
    */
   private async broadcastIdentity(event: IdentityEvent): Promise<void> {
-    const frame = createIdentityFrame({
+    const bytes = encodeIdentityFrame({
       seq: event.seq,
       did: event.did,
       time: new Date(event.ts).toISOString(),
       handle: event.handle,
     });
-    const bytes = frame.toBytes();
-
-    const disconnected: string[] = [];
-
-    for (const [id, client] of Array.from(this.clients.entries())) {
-      try {
-        if (event.seq > client.cursor) {
-          client.webSocket.send(bytes);
-          client.cursor = event.seq;
-        }
-      } catch (error) {
-        console.error(`Failed to send to client ${id}:`, error);
-        disconnected.push(id);
-      }
-    }
-
-    for (const id of disconnected) {
-      this.clients.delete(id);
+    let sockets: WebSocket[] = [];
+    try { sockets = (this.state as any).getWebSockets?.() || []; } catch {}
+    const targets = sockets.length > 0 ? sockets : Array.from(this.clients.values()).map((c) => c.webSocket);
+    for (const ws of targets) {
+      try { ws.send(bytes); } catch {}
     }
   }
 
@@ -422,49 +515,36 @@ export class Sequencer {
    * Broadcast account event to all connected clients
    */
   private async broadcastAccount(event: AccountEvent): Promise<void> {
-    const accountFrame = createAccountFrame({
+    const bytesAccount = encodeAccountFrame({
       seq: event.seq,
       did: event.did,
       time: new Date(event.ts).toISOString(),
       active: event.active,
       status: event.status,
     });
-    // Emit compatibility #sync frame as well
-    const { createSyncFrame } = await import('../lib/firehose/frames');
-    const syncLike = createSyncFrame({
+    // Emit compatibility #sync event as well
+    const bytesSync = encodeSyncFrame({
       seq: event.seq,
       did: event.did,
       time: new Date(event.ts).toISOString(),
       active: event.active,
       status: event.status,
     });
-    const bytesAccount = accountFrame.toBytes();
-    const bytesSync = syncLike.toBytes();
-
-    const disconnected: string[] = [];
-
-    for (const [id, client] of Array.from(this.clients.entries())) {
+    let sockets: WebSocket[] = [];
+    try { sockets = (this.state as any).getWebSockets?.() || []; } catch {}
+    const targets = sockets.length > 0 ? sockets : Array.from(this.clients.values()).map((c) => c.webSocket);
+    for (const ws of targets) {
       try {
-        if (event.seq > client.cursor) {
-          client.webSocket.send(bytesAccount);
-          client.webSocket.send(bytesSync);
-          client.cursor = event.seq;
-        }
-      } catch (error) {
-        console.error(`Failed to send to client ${id}:`, error);
-        disconnected.push(id);
-      }
-    }
-
-    for (const id of disconnected) {
-      this.clients.delete(id);
+        ws.send(bytesAccount);
+        ws.send(bytesSync);
+      } catch {}
     }
   }
 
   /**
    * Create a #commit frame from event
    */
-  private async createCommitFrame(event: CommitEvent): Promise<ReturnType<typeof createCommitFrame>> {
+  private async createCommitPayload(event: CommitEvent): Promise<CommitMessage> {
     const commitData = JSON.parse(event.data);
 
     // If blocks weren't provided, encode them now
@@ -488,6 +568,7 @@ export class Sequencer {
 
     // Resolve prev commit and since (previous rev) when available
     let prevCid: CID | null = null;
+    let prevDataCid: CID | null = null;
     try {
       if (commitData.prev) prevCid = CID.parse(String(commitData.prev));
     } catch {}
@@ -498,6 +579,9 @@ export class Sequencer {
       if (prevCid) {
         const prev = await db.select().from(commit_log).where(eq(commit_log.cid, prevCid.toString())).get();
         since = prev?.rev ?? null;
+        if (prev?.data) {
+          try { prevDataCid = CID.parse(String(JSON.parse(prev.data).data)); } catch {}
+        }
       } else {
         const row = await db.select().from(commit_log).where(gt(commit_log.seq, 0 as any)).orderBy(desc(commit_log.seq)).limit(1).get();
         since = row?.rev ?? null;
@@ -517,9 +601,10 @@ export class Sequencer {
       ops: event.ops || [],
       blobs: [],
       time: new Date(event.ts).toISOString(),
+      ...(prevDataCid ? { prevData: prevDataCid } : {}),
     };
 
-    return createCommitFrame(message);
+    return message;
   }
 
   /**
@@ -543,11 +628,7 @@ export class Sequencer {
    * Notify all clients that frames were dropped
    */
   private notifyFramesDropped(): void {
-    const infoFrame = createInfoFrame(
-      'FramesDropped',
-      `${this.droppedFrameCount} frame(s) dropped due to backpressure`,
-    );
-    const bytes = infoFrame.toBytes();
+    const bytes = encodeInfoFrame('FramesDropped', `${this.droppedFrameCount} frame(s) dropped due to backpressure`);
 
     for (const [id, client] of Array.from(this.clients.entries())) {
       try {
@@ -594,6 +675,54 @@ export class Sequencer {
       }
     } catch (error) {
       console.error('WebSocket message error:', error);
+    }
+  }
+
+  /**
+   * Return current metrics + attachments for debugging
+   */
+  private async handleMetrics(): Promise<Response> {
+    const base = this.getMetrics();
+    let sockets: WebSocket[] = [];
+    try { sockets = (this.state as any).getWebSockets?.() || []; } catch {}
+    const clients = sockets.map((ws) => {
+      let att: any = null;
+      try { att = (ws as any).deserializeAttachment?.(); } catch {}
+      return {
+        attachment: att,
+      };
+    });
+    const body = {
+      ...base,
+      hibernatedSockets: sockets.length,
+      clients,
+    };
+    return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  /**
+   * WebSocket hibernation handler: called when the connection is established or resumed
+   */
+  async webSocketOpen(ws: WebSocket): Promise<void> {
+    try {
+      console.log(JSON.stringify({ level: 'info', type: 'ws_open', ts: new Date().toISOString() }));
+    } catch {}
+
+    // Do not send an initial info frame.
+
+    // Best-effort: if this socket has an associated cursor, replay.
+    // Prefer durable attachment; fall back to in-memory map if present.
+    let cursor: number | undefined;
+    try {
+      const att = (ws as any).deserializeAttachment?.();
+      if (att && typeof att.cursor === 'number') cursor = att.cursor;
+    } catch {}
+    if (cursor == null) {
+      const client = Array.from(this.clients.values()).find((c) => c.webSocket === ws);
+      if (client) cursor = client.cursor;
+    }
+    if (cursor && cursor > 0) {
+      await this.replayFromCursor(ws, cursor);
     }
   }
 

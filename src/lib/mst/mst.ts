@@ -3,6 +3,7 @@ import * as uint8arrays from 'uint8arrays';
 import * as dagCbor from '@ipld/dag-cbor';
 import type { ReadableBlockstore } from './blockstore';
 import * as util from './util';
+import { BlockMap } from './block-map';
 
 /**
  * MST Node Data Structure
@@ -187,6 +188,37 @@ export class MST {
 
     if (layer !== null) this.layer = layer;
     return layer;
+  }
+
+  /**
+   * Get blocks that need to be stored (not already in storage)
+   * This is the key method for efficient block storage - only stores what's new
+   */
+  async getUnstoredBlocks(): Promise<{ root: CID; blocks: BlockMap }> {
+    const blocks = new BlockMap();
+    const pointer = await this.getPointer();
+
+    // Check if this node's block is already stored
+    const alreadyHas = await this.storage.has(pointer);
+    if (alreadyHas) {
+      // Block already exists, no need to store anything
+      return { root: pointer, blocks };
+    }
+
+    // This block doesn't exist - need to serialize and store it
+    const entries = await this.getEntries();
+    const data = serializeNodeData(entries);
+    await blocks.add(data);
+
+    // Recursively collect unstored blocks from child trees
+    for (const entry of entries) {
+      if (entry.isTree()) {
+        const subtree = await entry.getUnstoredBlocks();
+        blocks.addMap(subtree.blocks);
+      }
+    }
+
+    return { root: pointer, blocks };
   }
 
   /**

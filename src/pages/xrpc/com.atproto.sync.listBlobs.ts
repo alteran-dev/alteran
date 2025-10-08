@@ -12,7 +12,7 @@ export const prerender = false;
 export async function GET({ locals, url }: APIContext) {
   const { env } = locals.runtime;
 
-  const did = url.searchParams.get('did') || env.PDS_DID || 'did:example:single-user';
+  const did = url.searchParams.get('did') || (env.PDS_DID as string);
   const since = url.searchParams.get('since') || '';
   const limit = parseInt(url.searchParams.get('limit') || '500', 10);
 

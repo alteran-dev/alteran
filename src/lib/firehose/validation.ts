@@ -1,9 +1,9 @@
-import { createErrorFrame } from './frames';
+import { createInfoEvent, encodeEvent } from './frames';
 
 export function checkCursor(cursor: number, currentSeq: number): Uint8Array | null {
   if (Number.isFinite(cursor) && Number.isFinite(currentSeq) && cursor > currentSeq) {
-    return createErrorFrame('FutureCursor', 'Cursor is ahead of current sequence').toFramedBytes();
+    const info = createInfoEvent('OutdatedCursor', 'Cursor is ahead of current sequence');
+    return encodeEvent(info);
   }
   return null;
 }
-

@@ -36,6 +36,7 @@ const CORE_ROUTES = [
   { pattern: '/xrpc/com.atproto.sync.getLatestCommit', entrypoint: './src/pages/xrpc/com.atproto.sync.getLatestCommit.ts' },
   { pattern: '/xrpc/com.atproto.sync.getRecord', entrypoint: './src/pages/xrpc/com.atproto.sync.getRecord.ts' },
   { pattern: '/xrpc/com.atproto.sync.getRepo', entrypoint: './src/pages/xrpc/com.atproto.sync.getRepo.ts' },
+  { pattern: '/xrpc/com.atproto.sync.getRepoStatus', entrypoint: './src/pages/xrpc/com.atproto.sync.getRepoStatus.ts' },
   { pattern: '/xrpc/com.atproto.sync.getRepo.json', entrypoint: './src/pages/xrpc/com.atproto.sync.getRepo.json.ts' },
   { pattern: '/xrpc/com.atproto.sync.getRepo.range', entrypoint: './src/pages/xrpc/com.atproto.sync.getRepo.range.ts' },
   { pattern: '/xrpc/com.atproto.sync.listBlobs', entrypoint: './src/pages/xrpc/com.atproto.sync.listBlobs.ts' },
@@ -67,6 +68,7 @@ const DEBUG_ROUTES = [
   { pattern: '/debug/db/commits', entrypoint: './src/pages/debug/db/commits.ts' },
   { pattern: '/debug/gc/blobs', entrypoint: './src/pages/debug/gc/blobs.ts' },
   { pattern: '/debug/record', entrypoint: './src/pages/debug/record.ts' },
+  { pattern: '/debug/sequencer', entrypoint: './src/pages/debug/sequencer.ts' },
 ];
 
 const pkgRoot = new URL('.', import.meta.url);

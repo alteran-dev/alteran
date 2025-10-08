@@ -10,7 +10,7 @@ export const prerender = false;
 export async function GET({ locals, url }: APIContext) {
   const { env } = locals.runtime;
 
-  const did = url.searchParams.get('did') || env.PDS_DID || 'did:example:single-user';
+  const did = url.searchParams.get('did') || (env.PDS_DID as string);
 
   try {
     const root = await getRoot(env);

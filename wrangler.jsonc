@@ -30,7 +30,10 @@
   "durable_objects": {
     "bindings": [{ "name": "SEQUENCER", "class_name": "Sequencer" }],
   },
-  "migrations": [{ "tag": "v1", "new_classes": ["Sequencer"] }],
+  "migrations": [
+    { "tag": "v1", "new_classes": ["Sequencer"] },
+    { "tag": "v2", "modified_classes": ["Sequencer"] }
+  ],
   "observability": { "enabled": true },
   // Optionally bind secrets from Cloudflare Secret Store. Each entry exposes
   // an env binding with an async get(). This project resolves them to strings
@@ -89,7 +92,10 @@
       "durable_objects": {
         "bindings": [{ "name": "SEQUENCER", "class_name": "Sequencer" }],
       },
-      "migrations": [{ "tag": "v1", "new_classes": ["Sequencer"] }],
+      "migrations": [
+        { "tag": "v1", "new_classes": ["Sequencer"] },
+        { "tag": "v2", "modified_classes": ["Sequencer"] }
+      ],
     },
     "production": {
       "vars": {
@@ -117,7 +123,10 @@
       "durable_objects": {
         "bindings": [{ "name": "SEQUENCER", "class_name": "Sequencer" }],
       },
-      "migrations": [{ "tag": "v1", "new_classes": ["Sequencer"] }],
+      "migrations": [
+        { "tag": "v1", "new_classes": ["Sequencer"] },
+        { "tag": "v2", "modified_classes": ["Sequencer"] }
+      ],
       "observability": { "enabled": true },
     },
   },

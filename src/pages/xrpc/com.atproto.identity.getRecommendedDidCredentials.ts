@@ -50,7 +50,10 @@ export async function GET({ locals, request }: APIContext) {
     }
 
     // Get current PLC data to preserve rotation keys
-    const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
+    const did = await resolveSecret(env.PDS_DID);
+    if (!did) {
+      return new Response(JSON.stringify({ error: 'InvalidRequest', message: 'PDS_DID is not configured' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
     const plcResponse = await fetch(`https://plc.directory/${did}/data`);
 
     let rotationKeys: string[] = [];

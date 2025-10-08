@@ -10,7 +10,7 @@ export const prerender = false;
 export async function GET({ locals, url }: APIContext) {
   const { env } = locals.runtime;
 
-  const repo = url.searchParams.get('repo') || env.PDS_DID || 'did:example:single-user';
+  const repo = url.searchParams.get('repo') || (env.PDS_DID as string);
   const collection = url.searchParams.get('collection');
   const limit = parseInt(url.searchParams.get('limit') || '50', 10);
   const cursor = url.searchParams.get('cursor') || undefined;

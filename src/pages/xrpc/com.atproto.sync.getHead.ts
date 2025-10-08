@@ -6,6 +6,11 @@ export const prerender = false;
 export async function GET({ locals }: APIContext) {
   const { env } = locals.runtime;
   const root = await getRepoRoot(env);
-  if (!root) return new Response(JSON.stringify({ root: null, rev: 0 }), { headers: { 'Content-Type': 'application/json' } });
-  return new Response(JSON.stringify({ root: root.commitCid, rev: root.rev }), { headers: { 'Content-Type': 'application/json' } });
+  if (!root) {
+    return new Response(
+      JSON.stringify({ error: 'HeadNotFound', message: 'Head not found' }),
+      { status: 404, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+  return new Response(JSON.stringify({ root: root.commitCid }), { headers: { 'Content-Type': 'application/json' } });
 }

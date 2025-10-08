@@ -5,7 +5,11 @@ import { eq, inArray, and, sql } from 'drizzle-orm';
 
 export async function putRecord(env: Env, row: NewRecordRow) {
   const db = getDb(env);
-  await db.insert(record).values(row).onConflictDoUpdate({
+  const toInsert: NewRecordRow = {
+    ...row,
+    createdAt: row.createdAt ?? Date.now(),
+  };
+  await db.insert(record).values(toInsert).onConflictDoUpdate({
     target: record.uri,
     set: {
       cid: sql.raw(`excluded.${record.cid.name}`),

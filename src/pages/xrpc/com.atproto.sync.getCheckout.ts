@@ -6,7 +6,7 @@ export const prerender = false;
 export async function GET({ locals, request }: APIContext) {
   const { env } = locals.runtime;
   const url = new URL(request.url);
-  const did = url.searchParams.get('did') ?? (env.PDS_DID ?? 'did:example:single-user');
+  const did = url.searchParams.get('did') ?? (env.PDS_DID as string);
 
   // Support commit range queries
   const fromParam = url.searchParams.get('from');

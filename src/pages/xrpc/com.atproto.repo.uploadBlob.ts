@@ -5,6 +5,8 @@ import { isAllowedMime } from '../../lib/util';
 import { R2BlobStore } from '../../services/r2-blob-store';
 import { putBlobRef, checkBlobQuota, updateBlobQuota, isAccountActive } from '../../db/dal';
 import { resolveSecret } from '../../lib/secrets';
+import { CID } from 'multiformats/cid';
+import { sha256 } from 'multiformats/hashes/sha2';
 
 export const prerender = false;
 
@@ -53,13 +55,18 @@ export async function POST({ locals, request }: APIContext) {
   try {
     const res = await store.put(buf, { contentType });
 
+    // Compute a CIDv1 (raw) for the blob so clients receive a valid CID link
+    const digest = await sha256.digest(new Uint8Array(buf));
+    const cid = CID.createV1(0x55, digest); // 0x55 = raw codec
+    const cidStr = cid.toString();
+
     // Register blob ref with CID-based key
-    await putBlobRef(env, did, res.sha256, res.key, contentType, res.size);
+    await putBlobRef(env, did, cidStr, res.key, contentType, res.size);
 
     // Update quota
     await updateBlobQuota(env, did, res.size, 1);
 
-    return new Response(JSON.stringify({ blob: { ref: { $link: res.key }, mimeType: contentType, size: res.size } }), {
+    return new Response(JSON.stringify({ blob: { ref: { $link: cidStr }, mimeType: contentType, size: res.size } }), {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e: any) {

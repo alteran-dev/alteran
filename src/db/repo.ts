@@ -17,7 +17,10 @@ export async function getRoot(env: Env) {
 /**
  * Bump the repository root to a new revision with signed commit
  */
-export async function bumpRoot(env: Env, prevMstRoot?: CID): Promise<{
+export async function bumpRoot(env: Env, prevMstRoot?: CID, currentMstRoot?: CID, opts?: {
+  ops?: import('../lib/firehose/frames').RepoOp[];
+  newMstBlocks?: Array<[CID, Uint8Array]>;
+}): Promise<{
   commitCid: string;
   rev: string;
   ops: import('../lib/firehose/frames').RepoOp[];
@@ -36,15 +39,19 @@ export async function bumpRoot(env: Env, prevMstRoot?: CID): Promise<{
   const row = await db.select().from(repo_root).where(eq(repo_root.did, did)).get();
   const prevCommitCid = row?.commitCid ? CID.parse(row.commitCid) : null;
 
-  // Get the current MST root
+  // Get the current MST root (prefer caller-provided pointer if available)
   const repoManager = new RepoManager(env);
-  const mst = await repoManager.getOrCreateRoot();
-  const mstRootCid = await mst.getPointer();
+  const mstRootCid = currentMstRoot
+    ? currentMstRoot
+    : await (async () => {
+        const mst = await repoManager.getOrCreateRoot();
+        return mst.getPointer();
+      })();
 
-  // Extract operations if we have a previous MST root
-  const ops = prevMstRoot
-    ? await repoManager.extractOps(prevMstRoot, mstRootCid)
-    : [];
+  // Use provided ops if available; else compute by diffing trees (more expensive)
+  const ops = opts?.ops !== undefined
+    ? opts.ops
+    : (prevMstRoot ? await repoManager.extractOps(prevMstRoot, mstRootCid) : []);
 
   // Generate new revision (TID)
   const rev = generateTid();
@@ -94,7 +101,7 @@ export async function bumpRoot(env: Env, prevMstRoot?: CID): Promise<{
   await appendCommit(env, cidString, rev, commitData, sigBase64);
 
   // Encode blocks as CAR for firehose
-  const blocksBytes = await encodeBlocksForCommit(env, cid, mstRootCid, ops);
+  const blocksBytes = await encodeBlocksForCommit(env, cid, mstRootCid, ops, opts?.newMstBlocks);
   // Encode to base64 (workers-safe)
   let blocksBase64 = '';
   for (const b of blocksBytes) blocksBase64 += String.fromCharCode(b);

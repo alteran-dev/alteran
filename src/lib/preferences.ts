@@ -15,7 +15,8 @@ async function ensureTable(env: Env) {
 
 export async function getActorPreferences(env: Env): Promise<{ did: string; preferences: any[] }> {
   await ensureTable(env);
-  const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
+  const did = await resolveSecret(env.PDS_DID);
+  if (!did) throw new Error('PDS_DID is not configured');
   const row = await env.DB.prepare('SELECT json FROM actor_preferences WHERE did = ?')
     .bind(did)
     .first<{ json: string }>();
@@ -35,7 +36,8 @@ export async function getActorPreferences(env: Env): Promise<{ did: string; pref
 
 export async function setActorPreferences(env: Env, preferences: any[]): Promise<void> {
   await ensureTable(env);
-  const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
+  const did = await resolveSecret(env.PDS_DID);
+  if (!did) throw new Error('PDS_DID is not configured');
   const now = Date.now();
   await env.DB.prepare(
     'INSERT INTO actor_preferences (did, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(did) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at'

@@ -23,13 +23,24 @@ export async function POST({ locals, request }: APIContext) {
     }
     return new Response(JSON.stringify({ error: 'BadRequest' }), { status: 400 });
   }
-  const { collection, rkey, record } = body ?? {};
+  const { collection, rkey } = body ?? {};
+  let { record } = body ?? {};
   if (!collection || !record) return new Response(JSON.stringify({ error: 'BadRequest' }), { status: 400 });
+
+  // Minimal schema alignment for app.bsky.feed.post: ensure required fields
+  if (collection === 'app.bsky.feed.post' && record && typeof record === 'object') {
+    if (typeof record.text !== 'string') {
+      record.text = '';
+    }
+    if (typeof record.createdAt !== 'string') {
+      record.createdAt = new Date().toISOString();
+    }
+  }
 
   const repo = new RepoManager(env);
   const commit = await repo.createRecord(collection, record, rkey);
   await notifySequencer(env, {
-    did: env.PDS_DID ?? 'did:example:single-user',
+    did: env.PDS_DID as string,
     commitCid: commit.commitCid,
     rev: commit.rev,
     data: commit.commitData,

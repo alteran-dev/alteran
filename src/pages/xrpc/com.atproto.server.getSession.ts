@@ -12,7 +12,7 @@ export async function GET({ locals }: APIContext) {
   // TODO: Implement proper session validation from Authorization header
   // For now, return basic session info for single-user PDS
 
-  const did = env.PDS_DID ?? 'did:example:single-user';
+  const did = env.PDS_DID as string;
   const handle = env.PDS_HANDLE ?? 'user.example.com';
 
   return new Response(

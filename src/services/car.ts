@@ -67,17 +67,22 @@ export async function buildRepoCar(env: Env, did: string): Promise<CarSnapshot> 
         };
 
         const mstRoot = CID.parse(String(parsed.data));
-        // 1) Add all MST node blocks
-        await addMstBlocks(blockstore, mstRoot, seen, blocks);
+        // 1) Add all MST node blocks (batched, non-recursive) and collect leaf CIDs
+        const { mstBlocks, leafCids } = await collectMstBfs(blockstore, mstRoot);
+        for (const [cid, bytes] of mstBlocks) {
+          const k = cid.toString();
+          if (seen.has(k)) continue;
+          seen.add(k);
+          blocks.push({ cid, bytes });
+        }
 
-        // 2) Add all record leaf blocks by walking the MST
-        try {
-          const mst = MST.load(blockstore, mstRoot);
-          for await (const leaf of mst.walkLeavesFrom('')) {
-            await addBlock(leaf.value);
-          }
-        } catch (e) {
-          console.warn('Snapshot: failed traversing MST leaves:', e);
+        // 2) Add record leaf blocks by batched fetch
+        const leafFetched = await blockstore.getMany(leafCids);
+        for (const [cidStr, bytes] of leafFetched.blocks.entries()) {
+          const cid = CID.parse(cidStr);
+          if (seen.has(cidStr)) continue;
+          seen.add(cidStr);
+          blocks.push({ cid, bytes });
         }
 
         const bytes = encodeCar([commitCid], blocks);
@@ -88,20 +93,8 @@ export async function buildRepoCar(env: Env, did: string): Promise<CarSnapshot> 
       console.warn('Failed to reconstruct signed commit from tip; falling back to snapshot:', e);
     }
   }
-
-  // Fallback: deterministic snapshot built from current records
-  const rows = await listRecords(env);
-  const blocks: { cid: CID; bytes: Uint8Array }[] = [];
-  for (const r of rows) {
-    if (!r.uri.startsWith(`at://${did}/`)) continue;
-    const value = JSON.parse(r.json);
-    const block = await encodeRecordBlock(value);
-    blocks.push(block);
-  }
-  const commitObj = { type: 'commit', did, records: blocks.map((b) => b.cid.toString()).sort() };
-  const commit = await encodeRecordBlock(commitObj);
-  const bytes = encodeCar([commit.cid], [...blocks, commit]);
-  return { bytes, root: commit.cid, blocks: [...blocks, commit] };
+  // No authoritative head to build from
+  throw new Error('RepoNotFound');
 }
 
 export async function buildRepoCarRange(env: Env, fromSeq: number, toSeq: number): Promise<CarSnapshot> {
@@ -179,6 +172,7 @@ export async function encodeBlocksForCommit(
   commitCid: CID,
   mstRoot: CID,
   ops: Array<{ path: string; cid: CID | null }>,
+  newMstBlocks?: Array<[CID, Uint8Array]>,
 ): Promise<Uint8Array> {
   const blockstore = new D1Blockstore(env);
   const blocks: { cid: CID; bytes: Uint8Array }[] = [];
@@ -189,18 +183,60 @@ export async function encodeBlocksForCommit(
     const cidStr = cid.toString();
     if (seen.has(cidStr)) return;
     seen.add(cidStr);
-
-    const bytes = await blockstore.get(cid);
-    if (bytes) {
-      blocks.push({ cid, bytes });
+    let bytes = await blockstore.get(cid);
+    if (!bytes) {
+      // Attempt to reconstruct commit block from commit_log if this is the commit cid
+      if (cidStr === commitCid.toString()) {
+        try {
+          const row = await (env.DB as any)
+            .prepare('SELECT data, sig FROM commit_log WHERE cid = ? LIMIT 1')
+            .bind(cidStr)
+            .first();
+          if (row && row.data && row.sig) {
+            const parsed = JSON.parse(String(row.data));
+            const sigBin = atob(String(row.sig));
+            const sig = new Uint8Array(sigBin.length);
+            for (let i = 0; i < sigBin.length; i++) sig[i] = sigBin.charCodeAt(i);
+            const signedCommit = {
+              did: String(parsed.did),
+              version: Number(parsed.version),
+              data: CID.parse(String(parsed.data)),
+              rev: String(parsed.rev),
+              prev: parsed.prev ? CID.parse(String(parsed.prev)) : null,
+              sig,
+            } as const;
+            bytes = dagCbor.encode(signedCommit);
+          }
+        } catch (e) {
+          console.warn('Failed to reconstruct commit block from commit_log:', e);
+        }
+      }
     }
+    if (bytes) blocks.push({ cid, bytes });
   };
 
   // 1. Add commit block
   await addBlock(commitCid);
 
-  // 2. Add MST nodes by traversing the tree
-  await addMstBlocks(blockstore, mstRoot, seen, blocks);
+  // 2. Add MST nodes
+  if (newMstBlocks && newMstBlocks.length > 0) {
+    // Prefer the exact set of MST nodes touched by this commit
+    for (const [cid, bytes] of newMstBlocks) {
+      const cidStr = cid.toString();
+      if (seen.has(cidStr)) continue;
+      seen.add(cidStr);
+      blocks.push({ cid, bytes });
+    }
+  } else {
+    // Fallback: add MST nodes by batched BFS
+    const { mstBlocks } = await collectMstBfs(blockstore, mstRoot);
+    for (const [cid, bytes] of mstBlocks) {
+      const k = cid.toString();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      blocks.push({ cid, bytes });
+    }
+  }
 
   // 3. Add record blocks for all operations
   for (const op of ops) {
@@ -214,36 +250,151 @@ export async function encodeBlocksForCommit(
 }
 
 /**
+ * Build a CAR proving existence or non-existence of a record at collection/rkey
+ * Root is the latest signed commit block; includes MST path nodes and record block if present.
+ */
+export async function buildRecordProofCar(
+  env: Env,
+  did: string,
+  collection: string,
+  rkey: string,
+): Promise<{ bytes: Uint8Array }> {
+  const db = drizzle(env.DB);
+  const tip = await db.select().from(commit_log).orderBy(desc(commit_log.seq)).limit(1).get();
+  if (!tip) {
+    throw new Error('HeadNotFound');
+  }
+
+  // Reconstruct signed commit block and CID
+  const parsed = JSON.parse(tip.data as any);
+  const prevStr = parsed.prev ?? null;
+  const commitObj = {
+    did: String(parsed.did),
+    version: Number(parsed.version),
+    data: CID.parse(String(parsed.data)),
+    rev: String(parsed.rev),
+    prev: prevStr ? CID.parse(String(prevStr)) : null,
+    sig: (() => {
+      const bin = atob(String(tip.sig));
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      return u8;
+    })(),
+  } as const;
+  const commitBytes = dagCbor.encode(commitObj);
+  const hash = await sha256.digest(commitBytes);
+  const commitCid = CID.createV1(dagCbor.code, hash);
+
+  // Walk MST path to the target key
+  const blockstore = new D1Blockstore(env);
+  const mstRoot = CID.parse(String(parsed.data));
+  const key = `${collection}/${rkey}`;
+  const pathBlocks: Array<{ cid: CID; bytes: Uint8Array }> = [];
+  let cursor: CID | null = mstRoot;
+  let recordCid: CID | null = null;
+
+  while (cursor) {
+    const bytes = await blockstore.get(cursor);
+    if (!bytes) break;
+    pathBlocks.push({ cid: cursor, bytes });
+    try {
+      const node: any = dagCbor.decode(bytes);
+      // Reconstruct ordered entries: [l? subtree], then (leaf, subtree?)*
+      type Entry = { kind: 'tree'; cid: CID } | { kind: 'leaf'; key: string; value: CID };
+      const entries: Entry[] = [];
+      if (node?.l) entries.push({ kind: 'tree', cid: CID.asCID(node.l) ?? CID.parse(String(node.l)) });
+      let lastKey = '';
+      for (const e of (node?.e ?? [])) {
+        const keyStr = new TextDecoder('ascii').decode(e.k as Uint8Array);
+        const fullKey = lastKey.slice(0, e.p as number) + keyStr;
+        entries.push({ kind: 'leaf', key: fullKey, value: CID.asCID(e.v) ?? CID.parse(String(e.v)) });
+        lastKey = fullKey;
+        if (e.t) entries.push({ kind: 'tree', cid: CID.asCID(e.t) ?? CID.parse(String(e.t)) });
+      }
+      // Find first leaf >= key
+      let index = entries.findIndex((en) => en.kind === 'leaf' && (en as any).key >= key);
+      if (index < 0) index = entries.length;
+      const found = entries[index];
+      if (found && found.kind === 'leaf' && (found as any).key === key) {
+        recordCid = found.value;
+        break;
+      }
+      const prev = entries[index - 1];
+      if (prev && prev.kind === 'tree') {
+        cursor = prev.cid;
+        continue;
+      }
+      // Not found and no subtree to descend
+      break;
+    } catch {
+      break;
+    }
+  }
+
+  // Assemble CAR: commit as root; include path nodes; include record block if present
+  const blocks: { cid: CID; bytes: Uint8Array }[] = [{ cid: commitCid, bytes: commitBytes }];
+  const seen = new Set<string>([commitCid.toString()]);
+  for (const b of pathBlocks) {
+    const s = b.cid.toString();
+    if (!seen.has(s)) { seen.add(s); blocks.push(b); }
+  }
+  if (recordCid) {
+    const bytes = await blockstore.get(recordCid);
+    if (bytes) blocks.push({ cid: recordCid, bytes });
+  }
+  const bytes = encodeCar([commitCid], blocks);
+  return { bytes };
+}
+
+/**
  * Recursively add all MST node blocks
  */
-async function addMstBlocks(
+async function collectMstBfs(
   blockstore: D1Blockstore,
   rootCid: CID,
-  seen: Set<string>,
-  blocks: { cid: CID; bytes: Uint8Array }[],
-): Promise<void> {
-  const cidStr = rootCid.toString();
-  if (seen.has(cidStr)) return;
-  seen.add(cidStr);
+): Promise<{ mstBlocks: Array<[CID, Uint8Array]>; leafCids: CID[] }> {
+  const mstBlocks: Array<[CID, Uint8Array]> = [];
+  const leafCids: CID[] = [];
+  const seen = new Set<string>();
 
-  // Add the MST node block itself
-  const bytes = await blockstore.get(rootCid);
-  if (!bytes) return;
-  blocks.push({ cid: rootCid, bytes });
+  let toFetch: CID[] = [rootCid];
+  const BATCH = 200;
 
-  // Load MST and traverse children
-  try {
-    const mst = MST.load(blockstore, rootCid);
-    const entries = await mst.getEntries();
-
-    for (const entry of entries) {
-      if (entry.isTree()) {
-        // Recursively add child MST blocks
-        const childCid = await entry.getPointer();
-        await addMstBlocks(blockstore, childCid, seen, blocks);
+  while (toFetch.length > 0) {
+    const chunk = toFetch.slice(0, BATCH);
+    toFetch = toFetch.slice(BATCH);
+    const { blocks, missing } = await blockstore.getMany(chunk);
+    // Push node blocks we found
+    for (const [cidStr, bytes] of blocks.entries()) {
+      if (seen.has(cidStr)) continue;
+      seen.add(cidStr);
+      mstBlocks.push([CID.parse(cidStr), bytes]);
+    }
+    // Decode nodes to collect children and leaves
+    for (const [cidStr, bytes] of blocks.entries()) {
+      try {
+        const node: any = dagCbor.decode(bytes);
+        const l = node?.l ? (CID.asCID(node.l) ?? CID.parse(String(node.l))) : null;
+        if (l) {
+          const key = l.toString();
+          if (!seen.has(key)) toFetch.push(l);
+        }
+        const entries: any[] = Array.isArray(node?.e) ? node.e : [];
+        for (const e of entries) {
+          const v = CID.asCID(e?.v) ?? CID.parse(String(e?.v));
+          if (v) leafCids.push(v);
+          const t = e?.t ? (CID.asCID(e.t) ?? CID.parse(String(e.t))) : null;
+          if (t) {
+            const key = t.toString();
+            if (!seen.has(key)) toFetch.push(t);
+          }
+        }
+      } catch (err) {
+        console.warn('collectMstBfs: failed to decode node', cidStr, err);
       }
     }
-  } catch (error) {
-    console.error('Error traversing MST:', error);
+    // Ignore missing here; caller might not need full tree for snapshots
   }
+
+  return { mstBlocks, leafCids };
 }

@@ -9,7 +9,7 @@ export async function GET({ locals, request }: APIContext) {
   const url = new URL(request.url);
   let uri = url.searchParams.get('uri');
   if (!uri) {
-    const repo = url.searchParams.get('repo') ?? (env.PDS_DID ?? 'did:example:single-user');
+    const repo = url.searchParams.get('repo') ?? (env.PDS_DID as string);
     const collection = url.searchParams.get('collection');
     const rkey = url.searchParams.get('rkey');
     if (repo && collection && rkey) uri = `at://${repo}/${collection}/${rkey}`;

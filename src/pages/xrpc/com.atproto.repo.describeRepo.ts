@@ -10,8 +10,8 @@ export const prerender = false;
 export async function GET({ locals, url }: APIContext) {
   const { env } = locals.runtime;
 
-  const repo = url.searchParams.get('repo') || env.PDS_DID || 'did:example:single-user';
-  const did = env.PDS_DID || 'did:example:single-user';
+  const repo = url.searchParams.get('repo') || (env.PDS_DID as string);
+  const did = env.PDS_DID as string;
   const handle = env.PDS_HANDLE || 'user.example.com';
 
   // Get repo root to check if repo exists

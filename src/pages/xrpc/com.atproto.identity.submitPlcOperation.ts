@@ -30,7 +30,8 @@ export async function POST({ locals, request }: APIContext) {
       );
     }
 
-    const did = (await resolveSecret(env.PDS_DID)) ?? 'did:example:single-user';
+    const did = await resolveSecret(env.PDS_DID);
+    if (!did) return jsonErr(400, 'InvalidRequest', 'PDS_DID is not configured');
 
     console.log('Submitting PLC operation:', {
       did,

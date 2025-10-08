@@ -39,6 +39,7 @@ export abstract class Frame {
 
   /**
    * Encode frame to bytes (header + body as CBOR)
+   * Deprecated for WS firehose: upstream expects a single CBOR object per message.
    */
   toBytes(): Uint8Array {
     const headerBytes = dagCbor.encode(this.header);
@@ -48,6 +49,7 @@ export abstract class Frame {
 
   /**
    * Encode with 4-byte big-endian length prefix (payload = header||body encoded as dag-cbor)
+   * Deprecated for WS firehose: kept for tests/back-compat only.
    */
   toFramedBytes(): Uint8Array {
     const payload = this.toBytes();
@@ -165,7 +167,8 @@ export interface SyncMessage {
 }
 
 /**
- * Create an #info frame
+ * Legacy helpers (frames) — kept for tests/back-compat only.
+ * Upstream subscribeRepos expects a single CBOR object with $type.
  */
 export function createInfoFrame(name: string, message?: string): MessageFrame<InfoMessage> {
   return new MessageFrame({ name, message }, '#info');
@@ -208,22 +211,58 @@ export function createErrorFrame(error: string, message?: string): ErrorFrame {
 
 // Binary encoders (with 4-byte length prefix)
 export function encodeInfoFrame(name: string, message?: string): Uint8Array {
-  return createInfoFrame(name, message).toFramedBytes();
+  // Send as a single WebSocket message containing CBOR(header)||CBOR(body)
+  return createInfoFrame(name, message).toBytes();
 }
 
 export function encodeCommitFrame(data: CommitMessage): Uint8Array {
-  return createCommitFrame(data).toFramedBytes();
+  return createCommitFrame(data).toBytes();
 }
 
 export function encodeIdentityFrame(data: IdentityMessage): Uint8Array {
-  return createIdentityFrame(data).toFramedBytes();
+  return createIdentityFrame(data).toBytes();
 }
 
 export function encodeAccountFrame(data: AccountMessage): Uint8Array {
-  return createAccountFrame(data).toFramedBytes();
+  return createAccountFrame(data).toBytes();
 }
 
 // Alias for TODO nomenclature (#sync)
 export function encodeSyncFrame(data: SyncMessage): Uint8Array {
-  return createSyncFrame(data).toFramedBytes();
+  return createSyncFrame(data).toBytes();
+}
+
+// ----------------------------------------------------------------------------
+// Spec-compliant builders for subscribeRepos WS messages
+// Each message is a single CBOR object with a $type field
+// ----------------------------------------------------------------------------
+
+export type CommitEventObj = CommitMessage & { $type: '#commit' };
+export type InfoEventObj = InfoMessage & { $type: '#info' };
+export type IdentityEventObj = IdentityMessage & { $type: '#identity' };
+export type AccountEventObj = AccountMessage & { $type: '#account' };
+export type SyncEventObj = SyncMessage & { $type: '#sync' };
+
+export function createCommitEvent(data: CommitMessage): CommitEventObj {
+  return { $type: '#commit', ...data };
+}
+
+export function createInfoEvent(name: string, message?: string): InfoEventObj {
+  return { $type: '#info', name, ...(message ? { message } : {}) };
+}
+
+export function createIdentityEvent(data: IdentityMessage): IdentityEventObj {
+  return { $type: '#identity', ...data };
+}
+
+export function createAccountEvent(data: AccountMessage): AccountEventObj {
+  return { $type: '#account', ...data };
+}
+
+export function createSyncEvent(data: SyncMessage): SyncEventObj {
+  return { $type: '#sync', ...data };
+}
+
+export function encodeEvent(obj: object): Uint8Array {
+  return dagCbor.encode(obj);
 }

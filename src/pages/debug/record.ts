@@ -21,7 +21,7 @@ export async function POST({ locals, request }: APIContext) {
   const uri = body.uri;
   if (!uri) return new Response('missing uri', { status: 400 });
 
-  const did = env.PDS_DID ?? 'did:example:single-user';
+  const did = env.PDS_DID as string;
   const row = {
     uri,
     did,

@@ -5,7 +5,7 @@ export const prerender = false;
 
 export function GET({ locals }: APIContext) {
   const { env } = locals.runtime;
-  const did = typeof env.PDS_DID === 'string' ? env.PDS_DID : 'did:example:single-user';
+  const did = env.PDS_DID as string;
   const availableUserDomains: string[] = [];
 
   const links = typeof env.PDS_LINK_PRIVACY === 'string' || typeof env.PDS_LINK_TOS === 'string'

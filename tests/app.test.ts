@@ -78,7 +78,7 @@ describe('app basics', () => {
     // head
     const head1 = await fetch(`http://localhost:${port}/xrpc/com.atproto.sync.getHead`);
     const head1Body = await j(head1);
-    expect(head1Body.rev).toBe(1);
+    expect(typeof head1Body.root).toBe('string');
 
     // putRecord
     const rkey = crBody.uri.split('/').pop();
@@ -93,7 +93,8 @@ describe('app basics', () => {
 
     const head2 = await fetch(`http://localhost:${port}/xrpc/com.atproto.sync.getHead`);
     const head2Body = await j(head2);
-    expect(head2Body.rev).toBe(2);
+    expect(typeof head2Body.root).toBe('string');
+    expect(head2Body.root).not.toBe(head1Body.root);
 
     // deleteRecord
     const dr = await fetch(`http://localhost:${port}/xrpc/com.atproto.repo.deleteRecord`, {

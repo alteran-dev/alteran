@@ -75,7 +75,7 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
       return new Response(null, { status: 204, headers }) as unknown as WorkersResponse;
     }
 
-    await seed(resolvedEnv.DB, (resolvedEnv.PDS_DID as string | undefined) ?? 'did:example:single-user');
+    await seed(resolvedEnv.DB, resolvedEnv.PDS_DID as string);
 
     // Fire-and-forget: let relays know this PDS exists and is reachable.
     // Throttled per isolate and safe to call frequently.
@@ -94,6 +94,25 @@ export function createPdsFetchHandler(options?: CreatePdsFetchHandlerOptions): P
     }
 
     const url = new URL(request.url);
+
+    // Lightweight debug endpoint for Sequencer metrics
+    if (url.pathname === '/debug/sequencer' && request.method === 'GET') {
+      try {
+        if (!('SEQUENCER' in resolvedEnv) || !resolvedEnv.SEQUENCER) {
+          return new Response('Sequencer not configured', { status: 503 }) as unknown as WorkersResponse;
+        }
+        const id = (resolvedEnv as any).SEQUENCER.idFromName('default');
+        const stub = (resolvedEnv as any).SEQUENCER.get(id);
+        const req = new Request(new URL('/metrics', request.url).toString(), { method: 'GET' });
+        const res = await stub.fetch(req as any);
+        // Pass through JSON
+        const headers = new Headers(res.headers);
+        headers.set('Content-Type', 'application/json');
+        return new Response(await res.text(), { status: res.status, headers }) as unknown as WorkersResponse;
+      } catch (err) {
+        return new Response(JSON.stringify({ error: 'InternalError', message: 'Failed to fetch sequencer metrics' }), { status: 500, headers: { 'Content-Type': 'application/json' } }) as unknown as WorkersResponse;
+      }
+    }
     if (url.pathname === '/xrpc/com.atproto.sync.subscribeRepos') {
       const upgrade = request.headers.get('upgrade');
       if (upgrade !== 'websocket') {

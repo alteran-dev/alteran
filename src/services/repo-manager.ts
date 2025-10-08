@@ -1,6 +1,6 @@
 import { CID } from 'multiformats/cid';
 import type { Env } from '../env';
-import { MST, D1Blockstore, Leaf } from '../lib/mst';
+import { MST, D1Blockstore, Leaf, BlockMap } from '../lib/mst';
 import { drizzle } from 'drizzle-orm/d1';
 import { repo_root, record } from '../db/schema';
 import { eq, sql, like } from 'drizzle-orm';
@@ -24,27 +24,49 @@ export class RepoManager {
   }
 
   private async getDid(): Promise<string> {
-    return (await resolveSecret(this.env.PDS_DID)) ?? 'did:example:single-user';
+    const did = await resolveSecret(this.env.PDS_DID);
+    if (!did) throw new Error('PDS_DID is required');
+    return did;
   }
 
   /**
    * Get the current MST root
    */
   async getRoot(): Promise<MST | null> {
-    const db = drizzle(this.env.DB);
-    const did = await this.getDid();
-    const row = await db
-      .select()
-      .from(repo_root)
-      .where(eq(repo_root.did, did))
-      .get();
-
-    if (!row || !row.commitCid) return null;
-
     try {
-      const rootCid = CID.parse(row.commitCid);
-      return MST.load(this.blockstore, rootCid);
-    } catch {
+      const db = drizzle(this.env.DB);
+      const did = await this.getDid();
+
+      const rows = await db.select()
+        .from(repo_root)
+        .where(eq(repo_root.did, did))
+        .limit(1);
+
+      const row = rows[0];
+      if (!row) {
+        return null;
+      }
+
+      // Get the commit_log entry
+      const commit = await this.env.DB.prepare(
+        `SELECT data FROM commit_log WHERE cid = ? LIMIT 1`
+      ).bind(row.commitCid).first();
+
+      if (!commit) {
+        console.error(`[RepoManager] No commit found for CID: ${row.commitCid}`);
+        return null;
+      }
+
+      const parsed = JSON.parse(String(commit.data));
+      const mstRoot = CID.parse(String(parsed.data));
+
+      console.log(`[RepoManager] Loading MST root: ${mstRoot.toString()} from commit: ${row.commitCid}`);
+
+      // Load the MST (blocks should exist from proper storage)
+      return MST.load(this.blockstore, mstRoot);
+
+    } catch (e) {
+      console.error(`[RepoManager] Error in getRoot:`, e);
       return null;
     }
   }
@@ -54,10 +76,18 @@ export class RepoManager {
    */
   async getOrCreateRoot(): Promise<MST> {
     const existing = await this.getRoot();
-    if (existing) return existing;
+    if (existing) {
+      const pointer = await existing.getPointer();
+      console.log(`[RepoManager] Loaded existing MST root: ${pointer.toString()}`);
+      return existing;
+    }
 
-    // Create new empty MST
+    // Create new empty MST and immediately store it
+    console.log(`[RepoManager] Creating new empty MST`);
     const mst = await MST.create(this.blockstore, []);
+    await this.storeMstBlocks(mst);
+    const pointer = await mst.getPointer();
+    console.log(`[RepoManager] Created new MST root: ${pointer.toString()}`);
     return mst;
   }
 
@@ -68,6 +98,7 @@ export class RepoManager {
     mst: MST;
     recordCid: CID;
     prevMstRoot: CID | null;
+    newMstBlocks: BlockMap;
   }> {
     const key = `${collection}/${rkey}`;
 
@@ -82,9 +113,9 @@ export class RepoManager {
     const newMst = await currentMst.add(key, recordCid);
 
     // Store all new MST blocks
-    await this.storeMstBlocks(newMst);
+    const newMstBlocks = await this.storeMstBlocks(newMst);
 
-    return { mst: newMst, recordCid, prevMstRoot };
+    return { mst: newMst, recordCid, prevMstRoot, newMstBlocks };
   }
 
   /**
@@ -121,6 +152,7 @@ export class RepoManager {
     mst: MST;
     recordCid: CID;
     prevMstRoot: CID | null;
+    newMstBlocks: BlockMap;
   }> {
     const key = `${collection}/${rkey}`;
 
@@ -135,9 +167,9 @@ export class RepoManager {
     const newMst = await currentMst.update(key, recordCid);
 
     // Store all new MST blocks
-    await this.storeMstBlocks(newMst);
+    const newMstBlocks = await this.storeMstBlocks(newMst);
 
-    return { mst: newMst, recordCid, prevMstRoot };
+    return { mst: newMst, recordCid, prevMstRoot, newMstBlocks };
   }
 
   /**
@@ -165,13 +197,10 @@ export class RepoManager {
    * Delete a record from the repository
    */
   async deleteRecord(collection: string, rkey: string): Promise<{
+    mst: MST;
+    prevMstRoot: CID | null;
     uri: string;
-    commitCid: string;
-    rev: string;
-    ops: RepoOp[];
-    commitData: string;
-    sig: string;
-    blocks: string;
+    newMstBlocks: BlockMap;
   }> {
     const key = `${collection}/${rkey}`;
 
@@ -183,15 +212,14 @@ export class RepoManager {
     const newMst = await currentMst.delete(key);
 
     // Store all new MST blocks
-    await this.storeMstBlocks(newMst);
+    const newMstBlocks = await this.storeMstBlocks(newMst);
 
     // Delete from records table
     const did = await this.getDid();
     const uri = `at://${did}/${collection}/${rkey}`;
     await dalDeleteRecord(this.env, uri);
 
-    const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);
-    return { uri, commitCid, rev, ops, commitData, sig, blocks };
+    return { mst: newMst, prevMstRoot, uri, newMstBlocks };
   }
 
   /**
@@ -412,17 +440,18 @@ export class RepoManager {
 
   /**
    * Store all blocks from an MST to the blockstore
+   * Uses getUnstoredBlocks() to only store new blocks (official PDS approach)
    */
-  private async storeMstBlocks(mst: MST): Promise<void> {
-    const { cid, bytes } = await mst.serialize();
-    await this.blockstore.put(cid, bytes);
+  private async storeMstBlocks(mst: MST): Promise<BlockMap> {
+    const diff = await mst.getUnstoredBlocks();
 
-    // Recursively store child blocks
-    const entries = await mst.getEntries();
-    for (const entry of entries) {
-      if (entry.isTree()) {
-        await this.storeMstBlocks(entry);
-      }
+    // Store only the blocks that aren't already in storage
+    for (const [cid, bytes] of diff.blocks) {
+      console.log(`[RepoManager] Storing new MST block: ${cid.toString()}, size: ${bytes.length}`);
+      await this.blockstore.put(cid, bytes);
     }
+
+    console.log(`[RepoManager] Stored ${diff.blocks.size} new MST blocks`);
+    return diff.blocks;
   }
 }
