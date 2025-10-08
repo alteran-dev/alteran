@@ -1,6 +1,6 @@
 import { CID } from 'multiformats/cid';
 import type { Env } from '../env';
-import { MST, D1Blockstore, Leaf, BlockMap } from '../lib/mst';
+import { MST, D1Blockstore, Leaf, BlockMap, type NodeData } from '../lib/mst';
 import { drizzle } from 'drizzle-orm/d1';
 import { repo_root, record } from '../db/schema';
 import { eq, sql, like } from 'drizzle-orm';
@@ -132,15 +132,21 @@ export class RepoManager {
     blocks: string;
   }> {
     const key = rkey ?? generateTid();
-    const { mst, recordCid, prevMstRoot } = await this.addRecord(collection, key, record);
+    const { mst, recordCid, prevMstRoot, newMstBlocks } = await this.addRecord(collection, key, record);
 
     // Persist JSON to table for easy reads
     const did = await this.getDid();
     const uri = `at://${did}/${collection}/${key}`;
     await dalPutRecord(this.env, { uri, did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
 
-    // Update repo root with signed commit and extract ops
-    const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);
+    // Update repo root with signed commit; pass new MST blocks to avoid full-tree scan
+    const currentRoot = await mst.getPointer();
+    const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(
+      this.env,
+      prevMstRoot ?? undefined,
+      currentRoot,
+      { newMstBlocks: Array.from(newMstBlocks) }
+    );
 
     return { uri, cid: recordCid.toString(), commitCid, rev, ops, commitData, sig, blocks };
   }
@@ -185,11 +191,17 @@ export class RepoManager {
     sig: string;
     blocks: string;
   }> {
-    const { mst, recordCid, prevMstRoot } = await this.updateRecord(collection, rkey, record);
+    const { mst, recordCid, prevMstRoot, newMstBlocks } = await this.updateRecord(collection, rkey, record);
     const did = await this.getDid();
     const uri = `at://${did}/${collection}/${rkey}`;
     await dalPutRecord(this.env, { uri, did, cid: recordCid.toString(), json: JSON.stringify(record) } as any);
-    const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(this.env, prevMstRoot ?? undefined);
+    const currentRoot = await mst.getPointer();
+    const { commitCid, rev, ops, commitData, sig, blocks } = await bumpRoot(
+      this.env,
+      prevMstRoot ?? undefined,
+      currentRoot,
+      { newMstBlocks: Array.from(newMstBlocks) }
+    );
     return { uri, cid: recordCid.toString(), commitCid, rev, ops, commitData, sig, blocks };
   }
 
@@ -359,19 +371,10 @@ export class RepoManager {
   async extractOps(prevRoot: CID | null, newRoot: CID): Promise<RepoOp[]> {
     const ops: RepoOp[] = [];
 
-    // Load both trees
-    const newMst = await MST.load(this.blockstore, newRoot).getEntries();
-    const prevMst = prevRoot ? await MST.load(this.blockstore, prevRoot).getEntries() : [];
-
-    // Build maps for efficient lookup
-    const prevMap = new Map<string, CID>();
-    const newMap = new Map<string, CID>();
-
-    // Collect all leaves from previous tree
-    await this.collectLeaves(prevMst, prevMap);
-
-    // Collect all leaves from new tree
-    await this.collectLeaves(newMst, newMap);
+    // Collect leaves from both trees using batched BFS reads to D1
+    // This avoids hitting Cloudflare's per-request subrequest limits.
+    const newMap = await this.collectLeavesBatched(newRoot);
+    const prevMap = prevRoot ? await this.collectLeavesBatched(prevRoot) : new Map<string, CID>();
 
     // Find creates and updates
     for (const [path, cid] of Array.from(newMap.entries())) {
@@ -426,6 +429,76 @@ export class RepoManager {
         await this.collectLeaves(subEntries, map);
       }
     }
+  }
+
+  /**
+   * Collect all leaves for a given MST root using batched BFS over D1.
+   * Greatly reduces the number of D1 requests vs recursive getEntries().
+   */
+  private async collectLeavesBatched(root: CID): Promise<Map<string, CID>> {
+    const result = new Map<string, CID>();
+    const visited = new Set<string>();
+    let toFetch: CID[] = [root];
+
+    // Limit how many nodes we request per getMany() call; getMany() will
+    // further chunk to a smaller IN() size as needed.
+    const BATCH_NODES = 200;
+
+    while (toFetch.length > 0) {
+      const chunk = toFetch.slice(0, BATCH_NODES);
+      toFetch = toFetch.slice(BATCH_NODES);
+
+      const { blocks, missing } = await this.blockstore.getMany(chunk);
+
+      if (missing.length > 0) {
+        // Log but continue with what we have
+        console.warn('[RepoManager] collectLeavesBatched: missing nodes', missing.map(c => c.toString()));
+      }
+
+      // Decode nodes; gather leaves and queue children
+      for (const [cidStr, bytes] of blocks.entries()) {
+        if (visited.has(cidStr)) continue;
+        visited.add(cidStr);
+        try {
+          const node = dagCbor.decode(bytes) as NodeData | any;
+
+          // Reconstruct keys within this node
+          let lastKey = '';
+          const entries = Array.isArray((node as any).e) ? (node as any).e : [];
+          for (const e of entries) {
+            const keyStr = new TextDecoder('ascii').decode(e.k as Uint8Array);
+            const fullKey = lastKey.slice(0, Number(e.p)) + keyStr;
+            try {
+              // Validate format: collection/rkey
+              // Avoid importing util here to keep deps light; parsing is cheap.
+              const parts = fullKey.split('/');
+              if (parts.length === 2 && parts[0] && parts[1]) {
+                // v is a CID (dag-cbor will revive to CID or CID-like)
+                const v = (CID as any).asCID?.(e.v) ?? CID.parse(String(e.v));
+                result.set(fullKey, v);
+              }
+            } catch {}
+            lastKey = fullKey;
+
+            if (e.t) {
+              const t = (CID as any).asCID?.(e.t) ?? CID.parse(String(e.t));
+              const k = t.toString();
+              if (!visited.has(k)) toFetch.push(t);
+            }
+          }
+
+          if ((node as any).l) {
+            const l = (CID as any).asCID?.((node as any).l) ?? CID.parse(String((node as any).l));
+            const k = l.toString();
+            if (!visited.has(k)) toFetch.push(l);
+          }
+        } catch (err) {
+          console.warn('[RepoManager] collectLeavesBatched: failed to decode node', cidStr, err);
+        }
+      }
+    }
+
+    return result;
   }
 
   /**
