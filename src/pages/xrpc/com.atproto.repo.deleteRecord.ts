@@ -50,9 +50,15 @@ export async function POST({ locals, request }: APIContext) {
     blocks,
   });
 
-  // Respond with commit info
-  return new Response(
-    JSON.stringify({ uri, commitCid, rev }),
-    { headers: { 'Content-Type': 'application/json' } },
-  );
+  // Respond with official schema
+  const out = {
+    commit: {
+      cid: commitCid,
+      rev,
+    },
+  };
+
+  return new Response(JSON.stringify(out), {
+    headers: { 'Content-Type': 'application/json' },
+  });
 }

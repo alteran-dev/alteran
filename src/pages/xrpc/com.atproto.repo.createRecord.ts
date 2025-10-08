@@ -38,18 +38,29 @@ export async function POST({ locals, request }: APIContext) {
   }
 
   const repo = new RepoManager(env);
-  const commit = await repo.createRecord(collection, record, rkey);
+  const result = await repo.createRecord(collection, record, rkey);
   await notifySequencer(env, {
     did: env.PDS_DID as string,
-    commitCid: commit.commitCid,
-    rev: commit.rev,
-    data: commit.commitData,
-    sig: commit.sig,
-    ops: commit.ops,
-    blocks: commit.blocks
+    commitCid: result.commitCid,
+    rev: result.rev,
+    data: result.commitData,
+    sig: result.sig,
+    ops: result.ops,
+    blocks: result.blocks
   });
 
-  return new Response(JSON.stringify(commit), {
+  // Conform to official PDS response schema
+  const out = {
+    uri: result.uri,
+    cid: result.cid,
+    commit: {
+      cid: result.commitCid,
+      rev: result.rev,
+    },
+    validationStatus: 'unknown' as const,
+  };
+
+  return new Response(JSON.stringify(out), {
     headers: { 'Content-Type': 'application/json' },
   });
 }

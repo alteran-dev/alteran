@@ -59,6 +59,58 @@ export function isAllowedMime(env: any, mime: string): boolean {
   return set.has(baseMime);
 }
 
+export function baseMime(mime: string | null | undefined): string {
+  if (!mime) return 'application/octet-stream';
+  return mime.toLowerCase().split(';')[0].trim();
+}
+
+// Best-effort MIME sniffing for common image/video/audio formats.
+// Prefer this over client-provided header when possible, mirroring upstream PDS.
+export function sniffMime(buf: ArrayBuffer): string | null {
+  const bytes = new Uint8Array(buf);
+  const len = bytes.length;
+  const ascii = (start: number, n: number) =>
+    String.fromCharCode(...bytes.slice(start, start + n));
+
+  if (len >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    len >= 8 &&
+    bytes[0] === 0x89 && ascii(1, 3) === 'PNG' && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  if (len >= 6) {
+    const sig6 = ascii(0, 6);
+    if (sig6 === 'GIF87a' || sig6 === 'GIF89a') return 'image/gif';
+  }
+  if (len >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP') {
+    return 'image/webp';
+  }
+  // ISO BMFF / MP4 / AVIF / QuickTime: find 'ftyp' within first 256 bytes
+  {
+    const window = Math.min(len, 256);
+    for (let i = 0; i + 8 <= window; i++) {
+      if (ascii(i, 4) === 'ftyp') {
+        const brand = ascii(i + 4, 4);
+        const mp4Brands = new Set(['isom', 'iso2', 'mp41', 'mp42', 'avc1', 'MSNV', '3gp4', 'M4V ']);
+        if (brand === 'avif' || brand === 'avis' || brand === 'mif1' || brand === 'msf1') return 'image/avif';
+        if (brand === 'qt  ') return 'video/quicktime';
+        if (mp4Brands.has(brand)) return 'video/mp4';
+        // Unknown brand: still likely MP4 container
+        return 'video/mp4';
+      }
+    }
+  }
+  // WebM/Matroska (EBML)
+  if (len >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+    // Could be audio/webm or video/webm; default to video/webm
+    return 'video/webm';
+  }
+  return null;
+}
+
 export function randomRkey(): string {
   return crypto.randomUUID().replace(/-/g, '').substring(0, 13);
 }
