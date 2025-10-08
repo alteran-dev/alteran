@@ -451,8 +451,13 @@ export class RepoManager {
       const { blocks, missing } = await this.blockstore.getMany(chunk);
 
       if (missing.length > 0) {
-        // Log but continue with what we have
-        console.warn('[RepoManager] collectLeavesBatched: missing nodes', missing.map(c => c.toString()));
+        // Fail fast: missing MST nodes indicate an incomplete repo state.
+        // Previously, the recursive path would throw on first missing block via readObj().
+        // Preserve that correctness here to avoid emitting incorrect ops.
+        const missingStr = missing.map((c) => c.toString()).join(', ');
+        throw new Error(
+          `[RepoManager] collectLeavesBatched: missing MST nodes: ${missingStr}`,
+        );
       }
 
       // Decode nodes; gather leaves and queue children
