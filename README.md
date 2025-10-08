@@ -1,5 +1,8 @@
 # Alteran
 
+> [!WARNING]
+> This project was built using agentic coding tools and is currently undergoing a systematic review by a human in their spare time. Nobody should use this project as their PDS yet.
+
 ## Astro Integration
 
 This repository now ships an Astro integration that turns any Cloudflare Worker-backed Astro app into a single-user ATProto Personal Data Server. Install the package (or link it locally), then add the integration to your `astro.config.mjs`:
