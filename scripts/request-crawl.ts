@@ -1,3 +1,4 @@
+export {};
 /**
  * Simple helper to request a crawl from a relay.
  * Usage (recommend adding `--` so Bun doesn’t eat args):

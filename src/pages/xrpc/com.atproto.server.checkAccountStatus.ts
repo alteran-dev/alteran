@@ -23,7 +23,7 @@ export async function GET({ locals, request }: APIContext) {
   if (!(await isAuthorized(request, env))) return unauthorized();
 
   try {
-    const did = env.PDS_DID ?? 'did:example:single-user';
+    const did = String(env.PDS_DID ?? 'did:example:single-user');
     const db = getDb(env);
 
     // Get account state

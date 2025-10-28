@@ -2,6 +2,7 @@ import { bytesToHex, randomBytes } from '@noble/hashes/utils.js';
 import type { Env } from '../env';
 import { getRuntimeString } from './secrets';
 import { getOrCreateSecret } from '../db/account';
+import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 
 const SESSION_SECRET_KEY = 'session_jwt_secret';
 const GRACE_PERIOD_SECONDS = 2 * 60 * 60;
@@ -119,82 +120,35 @@ type RefreshTokenPayload = TokenPayload & { jti: string };
 type TokenHeader = { alg: 'HS256'; typ: 'at+jwt' | 'refresh+jwt' };
 
 async function signJwt(key: Uint8Array, typ: TokenHeader['typ'], payload: TokenPayload): Promise<string> {
-  const header: TokenHeader = { alg: 'HS256', typ };
-  const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  const data = `${encodedHeader}.${encodedPayload}`;
-  const signature = await hmacSign(key, data);
-  return `${data}.${signature}`;
+  // jose will set standard claims via dedicated methods; we also keep custom claims in payload
+  const signer = new SignJWT(payload as JWTPayload)
+    .setProtectedHeader({ alg: 'HS256', typ })
+    .setSubject(payload.sub)
+    .setAudience(payload.aud)
+    .setIssuedAt(payload.iat)
+    .setExpirationTime(payload.exp);
+  return await signer.sign(key);
 }
 
 async function decodeAndVerifyJwt(key: Uint8Array, token: string, expectedTyp: TokenHeader['typ'], audience: string) {
-  const parts = token.split('.');
-  if (parts.length !== 3) {
-    throw new Error('Invalid token format');
-  }
-  const header = JSON.parse(base64UrlDecode(parts[0])) as TokenHeader;
-  const payload = JSON.parse(base64UrlDecode(parts[1])) as TokenPayload;
-
-  if (header.alg !== 'HS256' || header.typ !== expectedTyp) {
+  const { payload, protectedHeader } = await jwtVerify(token, key, {
+    algorithms: ['HS256'],
+    audience,
+  });
+  if (protectedHeader.typ !== expectedTyp) {
     throw new Error('Unexpected token header');
   }
-  if (payload.aud !== audience) {
-    throw new Error('Token audience mismatch');
-  }
-  if (!payload.sub) {
+  // jose already validates exp/nbf/iat format and audience, but we keep minimal sanity checks
+  if (!payload.sub || typeof payload.sub !== 'string') {
     throw new Error('Token missing subject');
   }
   if (typeof payload.exp !== 'number') {
     throw new Error('Token missing expiry');
   }
-
-  const data = `${parts[0]}.${parts[1]}`;
-  const ok = await hmacVerify(key, data, parts[2]);
-  if (!ok) {
-    throw new Error('Invalid token signature');
-  }
-
-  return { header, payload };
+  return { header: protectedHeader as TokenHeader, payload: payload as unknown as TokenPayload };
 }
 
 function generateTokenId(): string {
-  const bytes = randomBytes(32);
-  return base64UrlEncode(bytes);
+  return bytesToHex(randomBytes(16));
 }
-
-async function hmacSign(keyBytes: Uint8Array, data: string): Promise<string> {
-  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, textEncoder.encode(data));
-  return base64UrlEncode(new Uint8Array(signature));
-}
-
-async function hmacVerify(keyBytes: Uint8Array, data: string, signatureB64: string): Promise<boolean> {
-  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-  return crypto.subtle.verify('HMAC', cryptoKey, base64UrlDecodeToBytes(signatureB64), textEncoder.encode(data));
-}
-
-function base64UrlEncode(value: string | Uint8Array): string {
-  const bytes = typeof value === 'string' ? textEncoder.encode(value) : value;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function base64UrlDecode(encoded: string): string {
-  const pad = encoded.length % 4 === 2 ? '==' : encoded.length % 4 === 3 ? '=' : '';
-  const binary = atob(encoded.replace(/-/g, '+').replace(/_/g, '/') + pad);
-  return binary;
-}
-
-function base64UrlDecodeToBytes(encoded: string): Uint8Array {
-  const binary = base64UrlDecode(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-const textEncoder = new TextEncoder();
+// removed custom HMAC/base64url helpers in favor of jose

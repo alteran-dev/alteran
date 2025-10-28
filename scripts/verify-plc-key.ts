@@ -31,7 +31,7 @@ if (!res.ok) {
   console.error('Failed to fetch PLC doc:', res.status, res.statusText)
   process.exit(2)
 }
-const doc = await res.json()
+const doc: any = await res.json()
 const vm = Array.isArray(doc.verificationMethod) ? doc.verificationMethod : []
 const plcKeys = vm
   .filter((v: any) => typeof v?.publicKeyMultibase === 'string')

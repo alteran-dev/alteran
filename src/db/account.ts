@@ -26,7 +26,8 @@ export async function getAccountByIdentifier(env: Env, identifier: string): Prom
   if (ident.handle) clauses.push(eq(account.handle, ident.handle));
   if (clauses.length === 0) return null;
   const where = clauses.length === 1 ? clauses[0] : or(...clauses);
-  return db.select().from(account).where(where).get();
+  const row = await db.select().from(account).where(where).get();
+  return row ?? null;
 }
 
 export async function createAccount(env: Env, data: {
@@ -105,7 +106,12 @@ export async function markRefreshTokenRotated(env: Env, id: string, nextId: stri
 
 export async function getRefreshToken(env: Env, id: string): Promise<RefreshTokenRow | null> {
   const db = getDb(env);
-  return db.select().from(refresh_token_store).where(eq(refresh_token_store.id, id)).get();
+  const row = await db
+    .select()
+    .from(refresh_token_store)
+    .where(eq(refresh_token_store.id, id))
+    .get();
+  return row ?? null;
 }
 
 export async function deleteRefreshToken(env: Env, id: string): Promise<void> {

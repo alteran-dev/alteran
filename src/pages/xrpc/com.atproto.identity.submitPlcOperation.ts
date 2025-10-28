@@ -31,7 +31,12 @@ export async function POST({ locals, request }: APIContext) {
     }
 
     const did = await resolveSecret(env.PDS_DID);
-    if (!did) return jsonErr(400, 'InvalidRequest', 'PDS_DID is not configured');
+    if (!did) {
+      return new Response(
+        JSON.stringify({ error: 'InvalidRequest', message: 'PDS_DID is not configured' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     console.log('Submitting PLC operation:', {
       did,

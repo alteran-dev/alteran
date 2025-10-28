@@ -4,7 +4,7 @@
     "target": "ES2021",
     "module": "ESNext",
     "lib": ["ES2021", "DOM"],
-    "types": ["bun-types"]
+    "types": ["bun"]
   },
   "include": [".astro/types.d.ts", "tests/**/*", "src/**/*"],
   "exclude": [

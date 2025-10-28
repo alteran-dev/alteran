@@ -51,13 +51,15 @@ async function main() {
   }
 
   // Wire an agent to call the app using the worker fetch implementation
+  const workerFetch: typeof fetch = (async (input: RequestInfo, init?: RequestInit) => {
+    const url = typeof input === 'string' ? new URL(input, 'http://localhost') : new URL((input as Request).url);
+    const request = input instanceof Request ? input : new Request(url.toString(), init);
+    return app.fetch(request, env, ctx);
+  }) as typeof fetch;
+
   const agent = new AtpAgent({
     service: 'http://localhost',
-    fetch: async (input: RequestInfo, init?: RequestInit) => {
-      const url = typeof input === 'string' ? new URL(input, 'http://localhost') : new URL((input as Request).url);
-      const request = input instanceof Request ? input : new Request(url.toString(), init);
-      return app.fetch(request, env, ctx);
-    },
+    fetch: workerFetch,
   });
 
   await agent.resumeSession({

@@ -12,6 +12,9 @@ export interface JwtClaims {
   scope?: string;
   aud?: string;
   jti?: string;
+  iss?: string;
+  iat?: number;
+  exp?: number;
   t: "access" | "refresh";
 }
 
@@ -49,6 +52,9 @@ export async function verifyJwt(
       aud: payload.aud as string | undefined,
       scope: payload.scope as string | undefined,
       jti: payload.jti as string | undefined,
+      iss: (payload as any).iss as string | undefined,
+      iat: (payload as any).iat as number | undefined,
+      exp: (payload as any).exp as number | undefined,
       t: "access",
     };
     if (payload.handle) {
@@ -66,6 +72,9 @@ export async function verifyJwt(
       aud: verified.payload.aud as string | undefined,
       scope: verified.payload.scope as string | undefined,
       jti: verified.payload.jti as string | undefined,
+      iss: (verified.payload as any).iss as string | undefined,
+      iat: (verified.payload as any).iat as number | undefined,
+      exp: (verified.payload as any).exp as number | undefined,
       t: "refresh",
     };
     return { valid: true, payload };
@@ -99,9 +108,11 @@ async function hmacJwtSign(payload: any, secret: string): Promise<string> {
   const h = b64url(enc.encode(JSON.stringify(header)));
   const p = b64url(enc.encode(JSON.stringify(payload)));
   const data = `${h}.${p}`;
+  const keyBytes = enc.encode(secret);
+  const keyBuf = (() => { const b = new ArrayBuffer(keyBytes.byteLength); new Uint8Array(b).set(keyBytes); return b; })();
   const key = await crypto.subtle.importKey(
     "raw",
-    enc.encode(secret),
+    keyBuf,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -117,18 +128,24 @@ async function hmacJwtVerify(
   secret: string,
 ): Promise<boolean> {
   const enc = new TextEncoder();
+  const keyBytes = enc.encode(secret);
+  const keyBuf = (() => { const b = new ArrayBuffer(keyBytes.byteLength); new Uint8Array(b).set(keyBytes); return b; })();
   const key = await crypto.subtle.importKey(
     "raw",
-    enc.encode(secret),
+    keyBuf,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["verify"],
   );
+  const sigBytes = b64urlDecode(sigB64);
+  const sigBuf = (() => { const b = new ArrayBuffer(sigBytes.byteLength); new Uint8Array(b).set(sigBytes); return b; })();
+  const dataBytes = enc.encode(data);
+  const dataBuf = (() => { const b = new ArrayBuffer(dataBytes.byteLength); new Uint8Array(b).set(dataBytes); return b; })();
   const ok = await crypto.subtle.verify(
     "HMAC",
     key,
-    b64urlDecode(sigB64),
-    enc.encode(data),
+    sigBuf,
+    dataBuf,
   );
   return !!ok;
 }

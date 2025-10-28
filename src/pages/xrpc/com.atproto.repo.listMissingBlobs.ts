@@ -19,7 +19,7 @@ export async function GET({ locals, request, url }: APIContext) {
   if (!(await isAuthorized(request, env))) return unauthorized();
 
   try {
-    const did = env.PDS_DID ?? 'did:example:single-user';
+    const did = String(env.PDS_DID ?? 'did:example:single-user');
     const limit = parseInt(url.searchParams.get('limit') || '500');
     const cursor = url.searchParams.get('cursor') || '';
 

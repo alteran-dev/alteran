@@ -81,13 +81,13 @@ export function validateConfig(env: Env): ConfigValidationResult {
   }
 
   // DID format validation
-  const did = env.PDS_DID;
+  const did = typeof env.PDS_DID === 'string' ? env.PDS_DID : undefined;
   if (did && !did.startsWith('did:')) {
     warnings.push(`PDS_DID should start with 'did:' (got: ${did})`);
   }
 
   // Handle format validation
-  const handle = env.PDS_HANDLE;
+  const handle = typeof env.PDS_HANDLE === 'string' ? env.PDS_HANDLE : undefined;
   if (handle && handle.includes('://')) {
     warnings.push(`PDS_HANDLE should not include protocol (got: ${handle})`);
   }
@@ -189,8 +189,8 @@ export function getConfig(env: Env) {
 
   return {
     // Required
-    did: env.PDS_DID!,
-    handle: env.PDS_HANDLE!,
+    did: String(env.PDS_DID!),
+    handle: String(env.PDS_HANDLE!),
 
     // Optional with defaults
     allowedMime: result.config.optional.PDS_ALLOWED_MIME.split(','),

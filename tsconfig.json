@@ -10,7 +10,7 @@
     "module": "ESNext",
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "WebWorker"],
-    "types": ["@cloudflare/workers-types", "bun-types"]
+    "types": ["@cloudflare/workers-types", "bun"]
   },
   "include": [".astro/types.d.ts", "**/*"],
   "exclude": ["dist"]

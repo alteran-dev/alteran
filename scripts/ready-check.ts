@@ -1,3 +1,4 @@
+export {};
 /**
  * Ready check for a deployed single-user PDS
  * Usage: bun scripts/ready-check.ts https://your-host
@@ -70,4 +71,3 @@ async function main() {
 }
 
 main().catch((e) => { console.error(e?.stack || String(e)); process.exit(1); });
-

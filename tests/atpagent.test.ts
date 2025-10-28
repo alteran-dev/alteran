@@ -30,7 +30,7 @@ describe('AtpAgent integration', () => {
     // login
     await agent.login({ identifier: 'user', password: 'pwd' });
     expect(agent.session?.accessJwt).toBeDefined();
-    const did = env.PDS_DID!;
+    const did = String(env.PDS_DID);
     // create record
     const createRes = await agent.com.atproto.repo.createRecord({
       repo: did,
@@ -93,7 +93,7 @@ describe('AtpAgent integration', () => {
   it('serves app.bsky actor/feed/notification endpoints', async () => {
     const agent = new AtpAgent({ service: 'http://localhost', fetch: fetchImpl as any });
     await agent.login({ identifier: 'user', password: 'pwd' });
-    const did = env.PDS_DID!;
+    const did = String(env.PDS_DID);
 
     // ensure data exists in repo
     const post = await agent.com.atproto.repo.createRecord({
@@ -198,7 +198,7 @@ describe('AtpAgent integration', () => {
     await env.DB.prepare(
       'INSERT OR REPLACE INTO chat_convo_member (convo_id, did, handle, display_name, avatar, position) VALUES (?, ?, ?, ?, ?, ?)',
     )
-      .bind('convo-test', did, env.PDS_HANDLE ?? 'user.example.com', 'Owner', null, 0)
+      .bind('convo-test', did, String(env.PDS_HANDLE ?? 'user.example.com'), 'Owner', null, 0)
       .run();
 
     await env.DB.prepare(

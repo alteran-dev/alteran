@@ -21,7 +21,7 @@ export function createExports(manifest: SSRManifest) {
     }
 
     // Delegate to the Cloudflare adapter handler while preserving Alteran additions.
-    return await handle(manifest, app, request, e, context as any);
+    return await handle(manifest, app, request as any, e, context as any);
   };
 
   return {

@@ -1,5 +1,6 @@
 import type { Env } from '../../env';
 import { getOrCreateSecret, setSecret, getSecret } from '../../db/account';
+import { decodeProtectedHeader, importJWK, compactVerify, type JWK as JoseJWK } from 'jose';
 
 // DPoP nonce management and proof verification utilities
 
@@ -19,13 +20,7 @@ function b64url(bytes: Uint8Array | ArrayBuffer): string {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function b64urlToBytes(s: string): Uint8Array {
-  const pad = s.length % 4 === 2 ? '==' : s.length % 4 === 3 ? '=' : '';
-  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
+// removed local b64urlToBytes helper
 
 export async function getAuthzNonce(env: Env): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
@@ -72,39 +67,7 @@ function urlWithoutHash(u: string): string {
   }
 }
 
-// Convert raw r|s (64 bytes) JWS signature to DER sequence for WebCrypto
-function jwsEs256ToDer(sig: Uint8Array): Uint8Array {
-  // Helper to trim leading zeros and ensure positive integers
-  function trim(bytes: Uint8Array): Uint8Array {
-    let i = 0;
-    while (i < bytes.length - 1 && bytes[i] === 0) i++;
-    let v = bytes.slice(i);
-    if (v[0] & 0x80) {
-      const out = new Uint8Array(v.length + 1);
-      out[0] = 0;
-      out.set(v, 1);
-      return out;
-    }
-    return v;
-  }
-  const r = trim(sig.slice(0, 32));
-  const s = trim(sig.slice(32));
-  const totalLen = 2 + r.length + 2 + s.length;
-  const seqLen = totalLen;
-  const der = new Uint8Array(2 + 1 + seqLen);
-  let offset = 0;
-  der[offset++] = 0x30; // SEQUENCE
-  der[offset++] = 0x81; // length (assuming < 128+255)
-  der[offset++] = seqLen;
-  der[offset++] = 0x02; // INTEGER
-  der[offset++] = r.length;
-  der.set(r, offset);
-  offset += r.length;
-  der[offset++] = 0x02; // INTEGER
-  der[offset++] = s.length;
-  der.set(s, offset);
-  return der;
-}
+// removed local DER conversion; jose handles verification
 
 export async function verifyDpop(env: Env, request: Request, opts?: { requireNonce?: boolean }): Promise<DpopVerification> {
   const dpop = request.headers.get('DPoP');
@@ -115,15 +78,14 @@ export async function verifyDpop(env: Env, request: Request, opts?: { requireNon
     (err as any).nonce = nonce;
     throw err;
   }
-  const [h, p, s] = dpop.split('.');
-  if (!h || !p || !s) {
+  const [h, p] = dpop.split('.');
+  if (!h || !p) {
     const err: any = new Error('Invalid DPoP');
     (err as any).code = 'use_dpop_nonce';
     (err as any).nonce = nonce;
     throw err;
   }
-  const header = JSON.parse(new TextDecoder().decode(b64urlToBytes(h)));
-  const payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(p)));
+  const header = decodeProtectedHeader(dpop) as any;
 
   if (header.typ !== 'dpop+jwt' || header.alg !== 'ES256' || !header.jwk) {
     const err: any = new Error('Invalid DPoP header');
@@ -131,6 +93,11 @@ export async function verifyDpop(env: Env, request: Request, opts?: { requireNon
     (err as any).nonce = nonce;
     throw err;
   }
+
+  // Verify signature using JOSE
+  const key = await importJWK(header.jwk as JoseJWK, 'ES256');
+  const verified = await compactVerify(dpop, key);
+  const payload = JSON.parse(new TextDecoder().decode(verified.payload));
 
   const method = request.method.toUpperCase();
   const url = urlWithoutHash(request.url);
@@ -156,31 +123,6 @@ export async function verifyDpop(env: Env, request: Request, opts?: { requireNon
       (err as any).nonce = nonce;
       throw err;
     }
-  }
-
-  // Verify signature using JWK (ES256, JWS uses raw r|s signature)
-  const key = (await crypto.subtle.importKey(
-    'jwk',
-    header.jwk as JsonWebKey,
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    false,
-    ['verify']
-  )) as CryptoKey;
-
-  const sigRaw = b64urlToBytes(s);
-  if (sigRaw.length !== 64) {
-    const err: any = new Error('Invalid DPoP signature');
-    (err as any).code = 'use_dpop_nonce';
-    (err as any).nonce = nonce;
-    throw err;
-  }
-  const der = jwsEs256ToDer(sigRaw);
-  const ok = await crypto.subtle.verify('ECDSA', key, der, new TextEncoder().encode(`${h}.${p}`));
-  if (!ok) {
-    const err: any = new Error('Invalid DPoP signature');
-    (err as any).code = 'use_dpop_nonce';
-    (err as any).nonce = nonce;
-    throw err;
   }
 
   const jkt = await jwkThumbprint(header.jwk as JsonWebKey);
@@ -221,4 +163,3 @@ export async function sha256b64url(input: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
   return b64url(digest);
 }
-

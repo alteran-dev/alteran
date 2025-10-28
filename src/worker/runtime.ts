@@ -164,8 +164,9 @@ async function getAstroFetch(options?: CreatePdsFetchHandlerOptions): Promise<As
 
   if (!cachedFetchPromise) {
     cachedFetchPromise = (async () => {
-      const { manifest } = await import('@astrojs-manifest');
-      return loadAstroFetchFromManifest(manifest as SSRManifest);
+      const mod = await import('@astrojs-manifest' as any);
+      const manifest = (mod as any).manifest as SSRManifest;
+      return loadAstroFetchFromManifest(manifest);
     })();
   }
 

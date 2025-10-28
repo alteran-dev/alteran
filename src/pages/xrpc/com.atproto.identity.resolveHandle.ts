@@ -11,8 +11,8 @@ export async function GET({ locals, url }: APIContext) {
   const { env } = locals.runtime;
 
   const handle = url.searchParams.get('handle');
-  const configuredHandle = env.PDS_HANDLE || 'user.example.com';
-  const did = env.PDS_DID || 'did:example:single-user';
+  const configuredHandle = String(env.PDS_HANDLE || 'user.example.com');
+  const did = String(env.PDS_DID || 'did:example:single-user');
 
   if (!handle) {
     return new Response(

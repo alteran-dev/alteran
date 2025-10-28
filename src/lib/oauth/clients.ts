@@ -1,4 +1,4 @@
-import { getAuthzNonce } from './dpop';
+import { decodeProtectedHeader, importJWK, compactVerify, type JWK as JoseJWK } from 'jose';
 
 export function isHttpsUrl(u: string): boolean {
   try {
@@ -28,72 +28,29 @@ export async function fetchClientMetadata(client_id: string): Promise<any> {
   }
 }
 
-function b64urlToBytes(s: string): Uint8Array {
-  const pad = s.length % 4 === 2 ? '==' : s.length % 4 === 3 ? '=' : '';
-  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-function jwsEs256ToDer(sig: Uint8Array): Uint8Array {
-  function trim(bytes: Uint8Array): Uint8Array {
-    let i = 0;
-    while (i < bytes.length - 1 && bytes[i] === 0) i++;
-    let v = bytes.slice(i);
-    if (v[0] & 0x80) {
-      const out = new Uint8Array(v.length + 1);
-      out[0] = 0;
-      out.set(v, 1);
-      return out;
-    }
-    return v;
-  }
-  const r = trim(sig.slice(0, 32));
-  const s = trim(sig.slice(32));
-  const totalLen = 2 + r.length + 2 + s.length;
-  const seqLen = totalLen;
-  const der = new Uint8Array(2 + 1 + seqLen);
-  let offset = 0;
-  der[offset++] = 0x30; // SEQUENCE
-  der[offset++] = 0x81; // len marker
-  der[offset++] = seqLen;
-  der[offset++] = 0x02; // INTEGER
-  der[offset++] = r.length;
-  der.set(r, offset);
-  offset += r.length;
-  der[offset++] = 0x02; // INTEGER
-  der[offset++] = s.length;
-  der.set(s, offset);
-  return der;
-}
+// removed local b64url/DER helpers in favor of jose
 
 export async function verifyClientAssertion(client_id: string, issuerOrigin: string, assertionJwt: string, jwks: any): Promise<boolean> {
   try {
-    const [h, p, s] = assertionJwt.split('.');
-    if (!h || !p || !s) return false;
-    const header = JSON.parse(new TextDecoder().decode(b64urlToBytes(h)));
-    const payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(p)));
-
+    const [h, p] = assertionJwt.split('.');
+    if (!h || !p) return false;
+    const header = decodeProtectedHeader(assertionJwt) as any;
     if (header.alg !== 'ES256') return false;
     const keys: any[] = Array.isArray(jwks?.keys) ? jwks.keys : [];
     if (!keys.length) return false;
     const byKid = typeof header.kid === 'string' ? keys.find((k) => k.kid === header.kid) : null;
     const candidates = byKid ? [byKid] : keys;
 
-    const data = new TextEncoder().encode(`${h}.${p}`);
-    const sig = b64urlToBytes(s);
-    const der = jwsEs256ToDer(sig);
-
-    let ok = false;
+    let payload: any | null = null;
     for (const jwk of candidates) {
       try {
-        const key = await crypto.subtle.importKey('jwk', jwk as JsonWebKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-        const pass = await crypto.subtle.verify('ECDSA', key, der, data);
-        if (pass) { ok = true; break; }
+        const key = await importJWK(jwk as JoseJWK, 'ES256');
+        const verified = await compactVerify(assertionJwt, key);
+        payload = JSON.parse(new TextDecoder().decode(verified.payload));
+        break;
       } catch {}
     }
-    if (!ok) return false;
+    if (!payload) return false;
 
     const now = Math.floor(Date.now() / 1000);
     if (payload.iss !== client_id) return false;
@@ -106,4 +63,3 @@ export async function verifyClientAssertion(client_id: string, issuerOrigin: str
     return false;
   }
 }
-

@@ -19,6 +19,9 @@ declare global {
     DB: D1Database;
     BLOBS: R2Bucket;
     SEQUENCER?: DurableObjectNamespace;
+    ASSETS?: {
+      fetch: (req: Request | string) => Promise<Response>;
+    };
     // Secrets can be provided either as Wrangler Secrets (string)
     // or via Secret Store bindings (SecretsStoreSecret).
     PDS_HANDLE?: string | SecretsStoreSecret;
@@ -43,6 +46,13 @@ declare global {
     PDS_BSKY_APP_VIEW_URL?: string;
     PDS_BSKY_APP_VIEW_DID?: string;
     PDS_BSKY_APP_VIEW_CDN_URL_PATTERN?: string;
+    PDS_BSKY_CHAT_URL?: string;
+    PDS_BSKY_CHAT_DID?: string;
+    PDS_OZONE_URL?: string;
+    PDS_OZONE_DID?: string;
+    PDS_LINK_PRIVACY?: string;
+    PDS_LINK_TOS?: string;
+    PDS_CONTACT_EMAIL?: string;
     // Relay crawl configuration
     PDS_RELAY_HOSTS?: string; // CSV of relay hostnames (no scheme). Default: bsky.network
     PDS_RELAY_NOTIFY?: string; // 'false' to disable auto notify

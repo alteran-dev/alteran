@@ -346,7 +346,7 @@ async function createServiceJwt(
   if (lexiconMethod) payload.lxm = lexiconMethod;
 
   // Always ES256K: sign with secp256k1 using REPO_SIGNING_KEY
-  const priv = (await getRuntimeString(env, 'REPO_SIGNING_KEY', '')).trim();
+  const priv = ((await getRuntimeString(env, 'REPO_SIGNING_KEY', '')) ?? '').trim();
   if (!priv) throw new Error('REPO_SIGNING_KEY not configured for ES256K service-auth');
 
   // Service-auth uses a standard JWT header with ES256K

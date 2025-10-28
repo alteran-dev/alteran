@@ -70,7 +70,8 @@
     "get-port": "^7.1.0",
     "hono": "^4.9.9",
     "multiformats": "^13.4.1",
-    "uint8arrays": "^5.1.0"
+    "uint8arrays": "^5.1.0",
+    "jose": "^5.9.6"
   },
   "repository": {
     "type": "git",

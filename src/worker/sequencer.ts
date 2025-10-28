@@ -452,7 +452,6 @@ export class Sequencer {
     // Use hibernation-aware API to fetch sockets; do not rely on in-memory maps.
     let sockets: WebSocket[] = [];
     try {
-      // @ts-expect-error Cloudflare runtime provides getWebSockets at runtime
       sockets = (this.state as any).getWebSockets?.() || [];
     } catch {}
 

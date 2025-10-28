@@ -8,7 +8,7 @@ export async function seed(db: D1Database, did: string) {
     await d1.insert(repo_root).values({
       did,
       commitCid: 'bafyreih2y3p6t2i4y567q2z5q2z5q2z5q2z5q2z5q2z5q2z5q2z5q2z5q',
-      rev: 0,
+      rev: '0',
     });
   }
 }

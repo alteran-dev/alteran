@@ -1,8 +1,8 @@
 import type { APIContext } from 'astro';
 
 const HTML_TEMPLATE = (
-  handle,
-  did,
+  handle: string,
+  did: string,
 ) => `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -96,8 +96,8 @@ const HTML_TEMPLATE = (
 
 export async function GET({ locals }: APIContext) {
   const { env } = locals.runtime ?? {};
-  const handle = env?.PDS_HANDLE ?? 'unknown.handle';
-  const did = env?.PDS_DID ?? 'did:plc:unknown';
+  const handle = String(env?.PDS_HANDLE ?? 'unknown.handle');
+  const did = String(env?.PDS_DID ?? 'did:plc:unknown');
 
   return new Response(HTML_TEMPLATE(handle, did), {
     status: 200,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+export {};
 /**
  * update-plc.ts
  *
@@ -56,7 +57,7 @@ async function prompt(label: string, hidden = false): Promise<string> {
   // Fallback: minimal prompt (not hidden)
   const buf = new Uint8Array(1024)
   await Bun.stdout.write(label + ': ')
-  const n = await Bun.stdin.read(buf)
+  const n = await (Bun.stdin as any).read(buf)
   return new TextDecoder().decode(buf.subarray(0, n ?? 0)).trim()
 }
 

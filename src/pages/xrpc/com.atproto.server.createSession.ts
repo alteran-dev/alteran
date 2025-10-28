@@ -41,8 +41,8 @@ export async function POST({ locals, request }: APIContext) {
   if (!account) {
     const fallbackPassword = await getRuntimeString(env, 'USER_PASSWORD', '');
     if (fallbackPassword) {
-      const fallbackDid = await getRuntimeString(env, 'PDS_DID', 'did:example:single-user');
-      const fallbackHandle = await getRuntimeString(env, 'PDS_HANDLE', identifier);
+      const fallbackDid = (await getRuntimeString(env, 'PDS_DID', 'did:example:single-user')) ?? 'did:example:single-user';
+      const fallbackHandle = (await getRuntimeString(env, 'PDS_HANDLE', identifier)) ?? identifier;
       const hashed = await hashPassword(fallbackPassword);
       await createAccount(env, {
         did: fallbackDid,
@@ -102,8 +102,8 @@ export async function POST({ locals, request }: APIContext) {
     await db.delete(login_attempts).where(eq(login_attempts.ip, clientIp)).run();
   }
 
-  const did = account?.did ?? (await getRuntimeString(env, 'PDS_DID', 'did:example:single-user'));
-  const handle = account?.handle ?? (await getRuntimeString(env, 'PDS_HANDLE', identifier ?? 'user.example'));
+  const did = (account?.did ?? (await getRuntimeString(env, 'PDS_DID', 'did:example:single-user')) ?? 'did:example:single-user');
+  const handle = (account?.handle ?? (await getRuntimeString(env, 'PDS_HANDLE', identifier ?? 'user.example')) ?? (identifier ?? 'user.example'));
 
   const { accessJwt, refreshJwt, refreshPayload, refreshExpiry } = await issueSessionTokens(env, did);
 

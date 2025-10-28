@@ -69,7 +69,7 @@ export class R2BlobStore {
     if (size > limit) throw new Error(`BlobTooLarge:${size}>${limit}`);
 
     const contentType = opts.contentType ?? 'application/octet-stream';
-    const sha = await crypto.subtle.digest('SHA-256', view);
+    const sha = await crypto.subtle.digest('SHA-256', R2BlobStore.toArrayBuffer(view));
     const shaB64 = R2BlobStore.b64url(sha);
     const key = R2BlobStore.cidKey(shaB64);
     const buffer = R2BlobStore.toArrayBuffer(view);

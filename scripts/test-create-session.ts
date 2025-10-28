@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+export {};
 /**
  * Test com.atproto.server.createSession against your PDS.
  *
