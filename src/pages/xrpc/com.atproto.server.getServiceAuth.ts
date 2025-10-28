@@ -1,13 +1,19 @@
 import type { APIContext } from 'astro';
-import { authenticateRequest, unauthorized } from '../../lib/auth';
+import { verifyResourceRequest, dpopResourceUnauthorized } from '../../lib/oauth/resource';
 import { createServiceAuthToken } from '../../lib/appview';
 
 export const prerender = false;
 
 export async function GET({ locals, request }: APIContext) {
   const { env } = locals.runtime;
-  const auth = await authenticateRequest(request, env);
-  if (!auth) return unauthorized();
+  let auth: { did: string; token: string } | null = null;
+  try {
+    auth = await verifyResourceRequest(env, request);
+    if (!auth) return dpopResourceUnauthorized(env);
+  } catch (e: any) {
+    if (e?.code === 'use_dpop_nonce') return dpopResourceUnauthorized(env);
+    return new Response(JSON.stringify({ error: 'AuthRequired' }), { status: 401 });
+  }
 
   const url = new URL(request.url);
   const audienceParam = url.searchParams.get('aud');
@@ -50,7 +56,7 @@ export async function GET({ locals, request }: APIContext) {
   }
 
   try {
-    const token = await createServiceAuthToken(env, auth.claims.sub, audience, lexiconMethod, expiresIn);
+    const token = await createServiceAuthToken(env, auth.did, audience, lexiconMethod, expiresIn);
     return new Response(JSON.stringify({ token }), {
       headers: { 'Content-Type': 'application/json' },
     });

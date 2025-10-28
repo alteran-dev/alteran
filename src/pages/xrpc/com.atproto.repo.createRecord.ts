@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { isAuthorized, unauthorized } from '../../lib/auth';
+import { verifyResourceRequest, dpopResourceUnauthorized } from '../../lib/oauth/resource';
 import { checkRate } from '../../lib/ratelimit';
 import { readJsonBounded } from '../../lib/util';
 import { RepoManager } from '../../services/repo-manager';
@@ -9,7 +9,13 @@ export const prerender = false;
 
 export async function POST({ locals, request }: APIContext) {
   const { env } = locals.runtime;
-  if (!(await isAuthorized(request, env))) return unauthorized();
+  try {
+    const auth = await verifyResourceRequest(env, request);
+    if (!auth) return dpopResourceUnauthorized(env);
+  } catch (e: any) {
+    if (e?.code === 'use_dpop_nonce') return dpopResourceUnauthorized(env);
+    return new Response(JSON.stringify({ error: 'AuthRequired' }), { status: 401 });
+  }
 
   const rateLimitResponse = await checkRate(env, request, 'writes');
   if (rateLimitResponse) return rateLimitResponse;

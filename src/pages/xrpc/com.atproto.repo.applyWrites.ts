@@ -2,7 +2,7 @@ import type { APIContext } from 'astro';
 import { RepoManager } from '../../services/repo-manager';
 import { readJson } from '../../lib/util';
 import { bumpRoot } from '../../db/repo';
-import { isAuthorized, unauthorized } from '../../lib/auth';
+import { verifyResourceRequest, dpopResourceUnauthorized } from '../../lib/oauth/resource';
 import { isAccountActive } from '../../db/dal';
 import { checkRate } from '../../lib/ratelimit';
 import { notifySequencer } from '../../lib/sequencer';
@@ -18,7 +18,13 @@ export const prerender = false;
  */
 export async function POST({ locals, request }: APIContext) {
   const { env } = locals.runtime;
-  if (!(await isAuthorized(request, env))) return unauthorized();
+  try {
+    const auth = await verifyResourceRequest(env, request);
+    if (!auth) return dpopResourceUnauthorized(env);
+  } catch (e: any) {
+    if (e?.code === 'use_dpop_nonce') return dpopResourceUnauthorized(env);
+    return new Response(JSON.stringify({ error: 'AuthRequired' }), { status: 401 });
+  }
 
   // Check if account is active
   const did = env.PDS_DID as string;
