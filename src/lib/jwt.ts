@@ -37,16 +37,33 @@ export async function verifyJwt(
   env: Env,
   token: string,
 ): Promise<{ valid: boolean; payload: JwtClaims } | null> {
+  console.error('[verifyJwt] Starting verification');
+
   const parts = token.split(".");
-  if (parts.length !== 3) return null;
+  if (parts.length !== 3) {
+    console.error('[verifyJwt] Invalid token parts:', parts.length);
+    return null;
+  }
+
   const header = JSON.parse(
     atob(parts[0].replace(/-/g, "+").replace(/_/g, "/")),
   );
+  console.error('[verifyJwt] Header:', JSON.stringify(header));
 
   if (header.typ === "at+jwt") {
-    const payload = await verifyAccessToken(env, token).catch(() => null);
-    if (!payload) return null;
-    if (!payload.sub) return null;
+    console.error('[verifyJwt] Detected at+jwt type');
+    const payload = await verifyAccessToken(env, token).catch((err) => {
+      console.error('[verifyJwt] verifyAccessToken failed:', err);
+      return null;
+    });
+    if (!payload) {
+      console.error('[verifyJwt] No payload from verifyAccessToken');
+      return null;
+    }
+    if (!payload.sub) {
+      console.error('[verifyJwt] No sub in payload');
+      return null;
+    }
     const claims: JwtClaims = {
       sub: String(payload.sub),
       aud: payload.aud as string | undefined,
@@ -60,10 +77,12 @@ export async function verifyJwt(
     if (payload.handle) {
       claims.handle = String(payload.handle);
     }
+    console.error('[verifyJwt] at+jwt verified successfully');
     return { valid: true, payload: claims };
   }
 
   if (header.typ === "refresh+jwt") {
+    console.error('[verifyJwt] Detected refresh+jwt type');
     const verified = await verifyRefreshToken(env, token).catch(() => null);
     if (!verified) return null;
     if (!verified.payload.sub) return null;
@@ -77,28 +96,47 @@ export async function verifyJwt(
       exp: (verified.payload as any).exp as number | undefined,
       t: "refresh",
     };
+    console.error('[verifyJwt] refresh+jwt verified successfully');
     return { valid: true, payload };
   }
 
+  console.error('[verifyJwt] Fallback to legacy JWT verification');
   const payload = JSON.parse(
     atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")),
   );
+  console.error('[verifyJwt] Payload type:', payload.t);
 
   let ok = false;
   if (header.alg === "HS256" && header.typ === "JWT") {
+    console.error('[verifyJwt] Using HS256 verification');
     const secret = await getRuntimeString(
       env,
       payload.t === "refresh" ? "REFRESH_TOKEN_SECRET" : "REFRESH_TOKEN",
       payload.t === "refresh" ? "dev-refresh" : "dev-access",
     );
-    if (!secret) return null;
+    if (!secret) {
+      console.error('[verifyJwt] No secret found');
+      return null;
+    }
+    console.error('[verifyJwt] Secret found, verifying signature');
     ok = await hmacJwtVerify(parts[0] + "." + parts[1], parts[2], secret);
+    console.error('[verifyJwt] Signature verification:', ok);
   } else {
+    console.error('[verifyJwt] Unsupported alg/typ:', header.alg, header.typ);
     return null;
   }
 
   const now = Math.floor(Date.now() / 1000);
-  if (!ok || (payload.exp && now > payload.exp)) return null;
+  if (!ok) {
+    console.error('[verifyJwt] Signature verification failed');
+    return null;
+  }
+  if (payload.exp && now > payload.exp) {
+    console.error('[verifyJwt] Token expired. Now:', now, 'Exp:', payload.exp);
+    return null;
+  }
+
+  console.error('[verifyJwt] Legacy JWT verified successfully');
   return { valid: true, payload: payload as JwtClaims };
 }
 

@@ -9,21 +9,35 @@ export const prerender = false;
 
 export async function POST({ locals, request }: APIContext) {
   const { env } = locals.runtime;
+
+  console.error('[refreshSession] Request received');
+
   const token = bearerToken(request);
   if (!token) {
+    console.error('[refreshSession] No bearer token found');
     return new Response(
       JSON.stringify({ error: 'AuthRequired', message: 'No authorization token provided' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
     );
   }
 
-  const verification = await verifyRefreshToken(env, token).catch(() => null);
+  console.error('[refreshSession] Token prefix:', token.substring(0, 30));
+  console.error('[refreshSession] Token length:', token.length);
+
+  const verification = await verifyRefreshToken(env, token).catch((err) => {
+    console.error('[refreshSession] Verification failed:', err instanceof Error ? err.message : String(err));
+    return null;
+  });
+
   if (!verification) {
+    console.error('[refreshSession] No verification result');
     return new Response(
       JSON.stringify({ error: 'InvalidToken', message: 'Invalid or expired refresh token' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
     );
   }
+
+  console.error('[refreshSession] Verification succeeded');
 
   const nowSec = Math.floor(Date.now() / 1000);
   const { decoded } = verification;
@@ -44,11 +58,14 @@ export async function POST({ locals, request }: APIContext) {
 
   const stored = await getRefreshToken(env, decoded.jti);
   if (!stored) {
+    console.error('[refreshSession] Token not found in DB, jti:', decoded.jti);
     return new Response(
       JSON.stringify({ error: 'InvalidToken', message: 'Refresh token has been revoked' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
     );
   }
+
+  console.error('[refreshSession] Token found in DB');
 
   if (stored.expiresAt <= nowSec) {
     return new Response(
@@ -83,6 +100,8 @@ export async function POST({ locals, request }: APIContext) {
 
   // Lazy cleanup of expired tokens (runs 1% of the time)
   lazyCleanupExpiredTokens(env).catch(console.error);
+
+  console.error('[refreshSession] Success, returning new tokens');
 
   return new Response(JSON.stringify({ did, handle, accessJwt, refreshJwt }), {
     headers: { 'Content-Type': 'application/json' },

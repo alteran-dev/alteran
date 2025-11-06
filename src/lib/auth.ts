@@ -9,18 +9,51 @@ export interface AuthContext {
 
 export async function isAuthorized(request: Request, env: Env): Promise<boolean> {
   const auth = request.headers.get('authorization');
-  if (!auth || !auth.startsWith('Bearer ')) return false;
+
+  console.error('=== AUTH DEBUG START ===');
+  console.error('URL:', request.url);
+  console.error('Has Auth Header:', !!auth);
+  console.error('Auth Prefix:', auth?.substring(0, 30));
+  console.error('=== AUTH DEBUG END ===');
+
+  if (!auth || !auth.startsWith('Bearer ')) {
+    console.error('RESULT: No Bearer token found');
+    return false;
+  }
+
   const token = auth.slice(7);
+  console.error('Token Length:', token.length);
+  console.error('Token Prefix:', token.substring(0, 30));
+
   // Prefer JWT
   const ver = await verifyJwt(env, token).catch((err) => {
-    console.error('JWT verification error:', err);
+    console.error('JWT VERIFICATION ERROR:', err instanceof Error ? err.message : String(err));
     return null;
   });
-  if (ver && ver.valid && ver.payload.t === 'access') return true;
+
+  console.error('JWT Valid:', ver?.valid);
+  console.error('JWT Type:', ver?.payload?.t);
+  console.error('JWT Sub:', ver?.payload?.sub);
+
+  if (ver && ver.valid && ver.payload.t === 'access') {
+    console.error('RESULT: JWT Success');
+    return true;
+  }
+
   // Back-compat local escape hatch if explicitly enabled
   const allowDev = (env as any).PDS_ALLOW_DEV_TOKEN === '1';
-  if (allowDev && token === 'dev-access-token') return true;
-  if (allowDev && env.USER_PASSWORD && token === env.USER_PASSWORD) return true;
+  console.error('Allow Dev Token:', allowDev);
+
+  if (allowDev && token === 'dev-access-token') {
+    console.error('RESULT: Dev token accepted');
+    return true;
+  }
+  if (allowDev && env.USER_PASSWORD && token === env.USER_PASSWORD) {
+    console.error('RESULT: User password accepted');
+    return true;
+  }
+
+  console.error('RESULT: Unauthorized');
   return false;
 }
 

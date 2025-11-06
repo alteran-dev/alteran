@@ -1,4 +1,6 @@
 import type { APIContext } from 'astro';
+import { authenticateRequest, unauthorized } from '../../lib/auth';
+import { getAccountByIdentifier } from '../../db/account';
 
 export const prerender = false;
 
@@ -6,20 +8,24 @@ export const prerender = false;
  * com.atproto.server.getSession
  * Get information about the current session
  */
-export async function GET({ locals }: APIContext) {
+export async function GET({ locals, request }: APIContext) {
   const { env } = locals.runtime;
 
-  // TODO: Implement proper session validation from Authorization header
-  // For now, return basic session info for single-user PDS
+  // Validate the access token
+  const authContext = await authenticateRequest(request, env);
+  if (!authContext) {
+    return unauthorized();
+  }
 
-  const did = env.PDS_DID as string;
-  const handle = env.PDS_HANDLE ?? 'user.example.com';
+  const did = authContext.claims.sub;
+  const account = await getAccountByIdentifier(env, did);
+  const handle = account?.handle ?? (env.PDS_HANDLE as string) ?? 'user.example.com';
 
   return new Response(
     JSON.stringify({
       did,
       handle,
-      email: 'user@example.com', // Single-user PDS doesn't have email
+      email: account?.email ?? 'user@example.com',
       emailConfirmed: true,
       emailAuthFactor: false,
       didDoc: {
@@ -31,7 +37,7 @@ export async function GET({ locals }: APIContext) {
           {
             id: '#atproto_pds',
             type: 'AtprotoPersonalDataServer',
-            serviceEndpoint: `https://${handle}`,
+            serviceEndpoint: `https://${env.PDS_HOSTNAME ?? handle}`,
           },
         ],
       },
