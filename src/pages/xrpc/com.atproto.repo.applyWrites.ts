@@ -2,7 +2,7 @@ import type { APIContext } from 'astro';
 import { RepoManager } from '../../services/repo-manager';
 import { readJson } from '../../lib/util';
 import { bumpRoot } from '../../db/repo';
-import { verifyResourceRequest, dpopResourceUnauthorized } from '../../lib/oauth/resource';
+import { verifyResourceRequestHybrid, dpopResourceUnauthorized } from '../../lib/oauth/resource';
 import { isAccountActive } from '../../db/dal';
 import { checkRate } from '../../lib/ratelimit';
 import { notifySequencer } from '../../lib/sequencer';
@@ -19,7 +19,7 @@ export const prerender = false;
 export async function POST({ locals, request }: APIContext) {
   const { env } = locals.runtime;
   try {
-    const auth = await verifyResourceRequest(env, request);
+    const auth = await verifyResourceRequestHybrid(env, request);
     if (!auth) return dpopResourceUnauthorized(env);
   } catch (e: any) {
     if (e?.code === 'use_dpop_nonce') return dpopResourceUnauthorized(env);

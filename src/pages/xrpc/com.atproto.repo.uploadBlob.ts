@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { verifyResourceRequest, dpopResourceUnauthorized } from '../../lib/oauth/resource';
+import { verifyResourceRequestHybrid, dpopResourceUnauthorized } from '../../lib/oauth/resource';
 import { checkRate } from '../../lib/ratelimit';
 import { isAllowedMime, sniffMime, baseMime } from '../../lib/util';
 import { R2BlobStore } from '../../services/r2-blob-store';
@@ -13,7 +13,7 @@ export const prerender = false;
 export async function POST({ locals, request }: APIContext) {
   const { env } = locals.runtime;
   try {
-    const auth = await verifyResourceRequest(env, request);
+    const auth = await verifyResourceRequestHybrid(env, request);
     if (!auth) return dpopResourceUnauthorized(env);
   } catch (e: any) {
     if (e?.code === 'use_dpop_nonce') return dpopResourceUnauthorized(env);

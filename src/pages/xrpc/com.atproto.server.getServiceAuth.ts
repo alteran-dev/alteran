@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { verifyResourceRequest, dpopResourceUnauthorized } from '../../lib/oauth/resource';
+import { verifyResourceRequestHybrid, dpopResourceUnauthorized } from '../../lib/oauth/resource';
 import { createServiceAuthToken } from '../../lib/appview';
 
 export const prerender = false;
@@ -8,7 +8,7 @@ export async function GET({ locals, request }: APIContext) {
   const { env } = locals.runtime;
   let auth: { did: string; token: string } | null = null;
   try {
-    auth = await verifyResourceRequest(env, request);
+    auth = await verifyResourceRequestHybrid(env, request);
     if (!auth) return dpopResourceUnauthorized(env);
   } catch (e: any) {
     if (e?.code === 'use_dpop_nonce') return dpopResourceUnauthorized(env);

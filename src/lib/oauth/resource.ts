@@ -75,3 +75,34 @@ export async function dpopResourceUnauthorized(env: Env, message?: string): Prom
   const body = JSON.stringify({ error: 'use_dpop_nonce', error_description: message ?? 'DPoP nonce required' });
   return new Response(body, { status: 401, headers });
 }
+
+/**
+ * Hybrid authentication that supports both DPoP (OAuth) and Bearer (legacy XRPC) tokens.
+ * Tries DPoP first, then falls back to Bearer for backward compatibility with official Bluesky apps.
+ */
+export async function verifyResourceRequestHybrid(env: Env, request: Request): Promise<{ did: string; token: string } | null> {
+  const auth = request.headers.get('authorization');
+  if (!auth) return null;
+
+  // Try DPoP authentication first (new OAuth flow)
+  if (auth.startsWith('DPoP ')) {
+    try {
+      const result = await verifyResourceRequest(env, request);
+      if (result) return result;
+    } catch (e: any) {
+      // If it's a nonce error, propagate it
+      if (e?.code === 'use_dpop_nonce') throw e;
+      // Otherwise fall through to Bearer
+    }
+  }
+
+  // Fall back to Bearer token authentication (legacy XRPC flow)
+  if (auth.startsWith('Bearer ')) {
+    const token = auth.slice(7).trim();
+    const payloadJwt = await verifyAccessToken(env, token).catch(() => null);
+    if (!payloadJwt) return null;
+    return { did: payloadJwt.sub as string, token };
+  }
+
+  return null;
+}
