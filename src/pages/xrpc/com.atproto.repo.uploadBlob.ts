@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { verifyResourceRequestHybrid, dpopResourceUnauthorized } from '../../lib/oauth/resource';
+import { verifyResourceRequestHybrid, dpopResourceUnauthorized, handleResourceAuthError } from '../../lib/oauth/resource';
 import { checkRate } from '../../lib/ratelimit';
 import { isAllowedMime, sniffMime, baseMime } from '../../lib/util';
 import { R2BlobStore } from '../../services/r2-blob-store';
@@ -15,9 +15,10 @@ export async function POST({ locals, request }: APIContext) {
   try {
     const auth = await verifyResourceRequestHybrid(env, request);
     if (!auth) return dpopResourceUnauthorized(env);
-  } catch (e: any) {
-    if (e?.code === 'use_dpop_nonce') return dpopResourceUnauthorized(env);
-    return new Response(JSON.stringify({ error: 'AuthRequired' }), { status: 401 });
+  } catch (err) {
+    const handled = await handleResourceAuthError(env, err);
+    if (handled) return handled;
+    throw err;
   }
 
   // Get DID from environment (single-user PDS)
