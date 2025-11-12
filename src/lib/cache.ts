@@ -97,12 +97,26 @@ export function getCacheKey(request: Request, prefix?: string): string {
 /**
  * Get cached response from Cache API
  */
+function resolveDefaultCache(): Cache | null {
+  if (typeof caches === 'undefined') {
+    return null;
+  }
+  try {
+    return ((caches as any).default ?? null) as Cache | null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getCachedResponse(
   request: Request,
   options?: { prefix?: string }
 ): Promise<Response | null> {
   try {
-    const cache = (caches as any).default as Cache;
+    const cache = resolveDefaultCache();
+    if (!cache) {
+      return null;
+    }
     const cacheKey = getCacheKey(request, options?.prefix);
     const cacheUrl = new URL(cacheKey, request.url);
     const cacheRequest = new Request(cacheUrl, request);
@@ -123,7 +137,10 @@ export async function putCachedResponse(
   options: CacheOptions
 ): Promise<void> {
   try {
-    const cache = (caches as any).default as Cache;
+    const cache = resolveDefaultCache();
+    if (!cache) {
+      return;
+    }
     const cacheKey = getCacheKey(request, options.prefix);
     const cacheUrl = new URL(cacheKey, request.url);
     const cacheRequest = new Request(cacheUrl, request);
@@ -155,7 +172,10 @@ export async function invalidateCache(
   options?: { prefix?: string }
 ): Promise<boolean> {
   try {
-    const cache = (caches as any).default as Cache;
+    const cache = resolveDefaultCache();
+    if (!cache) {
+      return false;
+    }
     const cacheKey = getCacheKey(request, options?.prefix);
     const cacheUrl = new URL(cacheKey, request.url);
     const cacheRequest = new Request(cacheUrl, request);

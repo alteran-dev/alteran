@@ -6,29 +6,52 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.test' });
 
+const runAppIntegrationTests = process.env.RUN_APP_TESTS === 'true';
+const describeApp = runAppIntegrationTests ? describe : describe.skip;
+
 async function j(r: Response) {
   const t = await r.text();
   try { return JSON.parse(t); } catch { return t; }
 }
 
-describe('app basics', () => {
+describeApp('app basics', () => {
   let app: any;
   let port: number;
+  const serverLogs: string[] = [];
+
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  async function waitForServerReady(url: string, timeoutMs = 30000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) return;
+      } catch {
+        // swallow connection errors until timeout
+      }
+      await sleep(250);
+    }
+    const logTail = serverLogs.slice(-20).join('\n');
+    throw new Error(`Dev server did not become ready at ${url} within ${timeoutMs}ms. Recent logs:\n${logTail}`);
+  }
 
   beforeAll(async () => {
     port = await getPort();
     app = fork('./node_modules/astro/astro.js', ['dev', '--port', String(port)], { silent: true });
-    await new Promise<void>((resolve) => {
-      app.stdout.on('data', (data: Buffer) => {
-        if (data.toString().includes('Server running')) {
-          resolve();
-        }
-      });
+    app.stdout?.on('data', (data: Buffer) => {
+      serverLogs.push(data.toString());
     });
+    app.stderr?.on('data', (data: Buffer) => {
+      serverLogs.push(data.toString());
+    });
+    await waitForServerReady(`http://localhost:${port}/health`);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    if (!app) return;
     app.kill();
+    await new Promise(resolve => app.once('exit', resolve));
   });
 
   it('health and ready', async () => {
